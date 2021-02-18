@@ -1,9 +1,9 @@
 [package]
-name = "spl-stake-pool"
+name = "meta-stake-pool"
 version = "0.1.0"
-description = "Solana Program Library Stake Pool"
-authors = ["Solana Maintainers <maintainers@solana.foundation>"]
-repository = "https://github.com/solana-labs/solana-program-library"
+description = "Solana Meta Stake Pool"
+authors = ["HackTeam <luciotato@narwallets.com>"]
+repository = "https://github.com/SolAutoStake/solana-program-library"
 license = "Apache-2.0"
 edition = "2018"
 
