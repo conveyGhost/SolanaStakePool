@@ -34,9 +34,9 @@ pub struct StakePool {
     pub owner_fee_account: Pubkey,
     /// Pool token program id
     pub token_program_id: Pubkey,
-    /// total stake under management
+    /// total stake under management (lamports)
     pub stake_total: u64,
-    /// total pool
+    /// total pool (in tokens)
     pub pool_total: u64,
     /// Last epoch stake_total field was updated
     pub last_update_epoch: u64,
@@ -46,14 +46,18 @@ pub struct StakePool {
 impl StakePool {
     /// Length of state data when serialized
     pub const LEN: usize = size_of::<StakePool>();
+
     /// calculate the pool tokens that should be minted
+    /// based on lamports deposited
     pub fn calc_pool_deposit_amount(&self, stake_lamports: u64) -> Option<u64> {
         if self.stake_total == 0 {
             return Some(stake_lamports);
         }
         self.calc_pool_withdraw_amount(stake_lamports)
     }
-    /// calculate the pool tokens that should be withdrawn
+    /// calculate the amount of pool tokens corresponding to a lamport amount
+    /// as tokens = amount_lamports * pool_total_tokens/stake_total_lamports, 
+    /// where pool_total_tokens/stake_total_lamports is: how many shares for a lamport
     pub fn calc_pool_withdraw_amount(&self, stake_lamports: u64) -> Option<u64> {
         u64::try_from(
             (stake_lamports as u128)
@@ -62,7 +66,9 @@ impl StakePool {
         )
         .ok()
     }
-    /// calculate lamports amount
+    /// calculate lamports amount corresponding to a tokens_amount
+    /// as lamports = tokens * stake_total_lamports/pool_total_tokens, 
+    /// where stake_total_lamports/pool_total_tokens is: token-price
     pub fn calc_lamports_amount(&self, pool_tokens: u64) -> Option<u64> {
         u64::try_from(
             (pool_tokens as u128)
@@ -72,6 +78,7 @@ impl StakePool {
         .ok()
     }
     /// calculate the fee in pool tokens that goes to the owner
+    /// applies fee% to amount. fee = amount*numerator/denominator. e.g. fee=amount*5/100
     pub fn calc_fee_amount(&self, pool_amount: u64) -> Option<u64> {
         if self.fee.denominator == 0 {
             return Some(0);
@@ -148,7 +155,9 @@ impl StakePool {
             return Err(ProgramError::InvalidAccountData);
         }
         #[allow(clippy::cast_ptr_alignment)]
+        //creates a pointer to the start of the buffer with the "shape" of the StakePool
         let value = unsafe { &mut *(&mut output[0] as *mut u8 as *mut StakePool) };
+        //copies this struct flat memory into the buffer
         *value = *self;
 
         Ok(())

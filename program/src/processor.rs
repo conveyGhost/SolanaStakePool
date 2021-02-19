@@ -944,23 +944,30 @@ impl Processor {
         let validator_account =
             Self::get_validator_checked(program_id, stake_pool_info, validator_stake_account_info)?;
 
+        //fin the validator account in the validator list
         let validator_list_item = validator_stake_list
             .find_mut(&validator_account)
             .ok_or(StakePoolError::ValidatorNotFound)?;
 
+        // take the amount form the account created by the user to stake
         let stake_lamports = **stake_info.lamports.borrow();
+        // computes how many shares/tokens of the pool the amount being staked represents
+        // ("pool" here means "tokens")
         let pool_amount = stake_pool
             .calc_pool_deposit_amount(stake_lamports)
             .ok_or(StakePoolError::CalculationFailure)?;
 
+        // apply fee% to token amount
         let fee_amount = stake_pool
             .calc_fee_amount(pool_amount)
             .ok_or(StakePoolError::CalculationFailure)?;
 
+        // discount fee% from token amount
         let user_amount = pool_amount
             .checked_sub(fee_amount)
             .ok_or(StakePoolError::CalculationFailure)?;
 
+        // sets stake_pool_info as "Withdrawer" for stake_info(staking account)?
         Self::stake_authorize(
             stake_pool_info.key,
             stake_info.clone(),
@@ -973,6 +980,7 @@ impl Processor {
             stake_program_info.clone(),
         )?;
 
+        // sets stake_pool_info as "Staker" for stake_info? (staking account)
         Self::stake_authorize(
             stake_pool_info.key,
             stake_info.clone(),
@@ -985,6 +993,7 @@ impl Processor {
             stake_program_info.clone(),
         )?;
 
+        // merges stake_info into stake_pool_info main pgm account? 
         Self::stake_merge(
             stake_pool_info.key,
             stake_info.clone(),
@@ -997,6 +1006,7 @@ impl Processor {
             stake_program_info.clone(),
         )?;
 
+        // mints tokens/shares for the user (tokens minus fee)
         Self::token_mint_to(
             stake_pool_info.key,
             token_program_info.clone(),
@@ -1008,6 +1018,7 @@ impl Processor {
             user_amount,
         )?;
 
+        // mints *fee* tokens/shares for owner_fee_info
         Self::token_mint_to(
             stake_pool_info.key,
             token_program_info.clone(),
@@ -1018,11 +1029,16 @@ impl Processor {
             stake_pool.withdraw_bump_seed,
             fee_amount,
         )?;
+        //update total toekns/shares 
         stake_pool.pool_total += pool_amount;
+        //update total staked
         stake_pool.stake_total += stake_lamports;
+        //save contract state into stake_pool_info account
         stake_pool.serialize(&mut stake_pool_info.data.borrow_mut())?;
 
+        //update validator balance in out internal list
         validator_list_item.balance = **validator_stake_account_info.lamports.borrow();
+        //save updated validator list into validator_stake_list_info account
         validator_stake_list.serialize(&mut validator_stake_list_info.data.borrow_mut())?;
 
         Ok(())
