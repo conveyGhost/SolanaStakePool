@@ -86,9 +86,11 @@ impl Processor {
 
     /// Returns validator address for a particular stake account
     pub fn get_validator(stake_account_info: &AccountInfo) -> Result<Pubkey, ProgramError> {
+        //deserializes stake-account data
         let stake_state: stake::StakeState = deserialize(&stake_account_info.data.borrow())
             .or(Err(ProgramError::InvalidAccountData))?;
         match stake_state {
+            //returns stake.delegation.voter_pubkey
             stake::StakeState::Stake(_, stake) => Ok(stake.delegation.voter_pubkey),
             _ => Err(StakePoolError::WrongStakeState.into()),
         }
@@ -967,7 +969,7 @@ impl Processor {
             .checked_sub(fee_amount)
             .ok_or(StakePoolError::CalculationFailure)?;
 
-        // sets stake_pool_info as "Withdrawer" for stake_info(staking account)?
+        // sets stake_pool_info as "Withdrawer" for stake_info
         Self::stake_authorize(
             stake_pool_info.key,
             stake_info.clone(),
@@ -980,7 +982,7 @@ impl Processor {
             stake_program_info.clone(),
         )?;
 
-        // sets stake_pool_info as "Staker" for stake_info? (staking account)
+        // sets stake_pool_info as "Staker" for stake_info
         Self::stake_authorize(
             stake_pool_info.key,
             stake_info.clone(),
@@ -993,7 +995,7 @@ impl Processor {
             stake_program_info.clone(),
         )?;
 
-        // merges stake_info into stake_pool_info main pgm account? 
+        // merges stake_info into stake_pool_info
         Self::stake_merge(
             stake_pool_info.key,
             stake_info.clone(),
@@ -1045,6 +1047,7 @@ impl Processor {
     }
 
     /// Processes [Withdraw](enum.Instruction.html).
+    /// split contract's staking acc into stake_split_to and assigns authority to the user
     pub fn process_withdraw(
         program_id: &Pubkey,
         pool_amount: u64,
@@ -1080,6 +1083,7 @@ impl Processor {
             return Err(ProgramError::IncorrectProgramId);
         }
 
+        // load contract state
         let mut stake_pool = StakePool::deserialize(&stake_pool_info.data.borrow())?;
         if !stake_pool.is_initialized() {
             return Err(StakePoolError::InvalidState.into());
@@ -1109,17 +1113,21 @@ impl Processor {
             return Err(StakePoolError::InvalidState.into());
         }
 
+        //get the validator pub key from the state stored at stake_pool_info arg
         let validator_account =
             Self::get_validator_checked(program_id, stake_pool_info, stake_split_from)?;
 
+        //finds validator in our internal list
         let validator_list_item = validator_stake_list
             .find_mut(&validator_account)
             .ok_or(StakePoolError::ValidatorNotFound)?;
 
+        // computes how many lamports represent the token/shares being sold|burned
         let stake_amount = stake_pool
             .calc_lamports_amount(pool_amount)
             .ok_or(StakePoolError::CalculationFailure)?;
 
+        // split the amount from this contract stake acc into stake_split_to
         Self::stake_split(
             stake_pool_info.key,
             stake_split_from.clone(),
@@ -1132,6 +1140,12 @@ impl Processor {
             stake_program_info.clone(),
         )?;
 
+        // "transfer" the mount to the user in a convoluted solana-requeried way:
+        // 1. splits the staked amount *into a new account* the caller created just for this call and sent as parameter
+        // 2. moves ownership of the new account (who can withdraw, who can stake, to the user)
+        // at the end, the user "new account" has the lamports, and the user can operate it.- 
+        //
+        //assigns Withdrawer to user on the split account
         Self::stake_authorize(
             stake_pool_info.key,
             stake_split_to.clone(),
@@ -1144,6 +1158,7 @@ impl Processor {
             stake_program_info.clone(),
         )?;
 
+        //assings Staker to user on the split account
         Self::stake_authorize(
             stake_pool_info.key,
             stake_split_to.clone(),
@@ -1156,6 +1171,7 @@ impl Processor {
             stake_program_info.clone(),
         )?;
 
+        //burns the tokens
         Self::token_burn(
             stake_pool_info.key,
             token_program_info.clone(),
@@ -1167,11 +1183,16 @@ impl Processor {
             pool_amount,
         )?;
 
+        //update token supply
         stake_pool.pool_total -= pool_amount;
+        //update total staked
         stake_pool.stake_total -= stake_amount;
+        //save into contract state
         stake_pool.serialize(&mut stake_pool_info.data.borrow_mut())?;
 
+        //updte our internal validator list
         validator_list_item.balance = **stake_split_from.lamports.borrow();
+        //save into validator_stake_list state
         validator_stake_list.serialize(&mut validator_stake_list_info.data.borrow_mut())?;
 
         Ok(())
