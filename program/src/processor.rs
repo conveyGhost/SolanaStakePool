@@ -27,6 +27,7 @@ use solana_program::{
     sysvar::Sysvar,
 };
 use spl_token::state::Mint;
+use core::convert::{TryFrom,TryInto};
 
 /// Program state handler.
 pub struct Processor {}
@@ -257,7 +258,7 @@ impl Processor {
     /// Issue a spl_token `MintTo` instruction.
     #[allow(clippy::too_many_arguments)]
     pub fn token_mint_to<'a>(
-        stake_pool: &Pubkey,
+        program_id: &Pubkey,
         token_program: AccountInfo<'a>,
         mint: AccountInfo<'a>,
         destination: AccountInfo<'a>,
@@ -266,7 +267,7 @@ impl Processor {
         bump_seed: u8,
         amount: u64,
     ) -> Result<(), ProgramError> {
-        let me_bytes = stake_pool.to_bytes();
+        let me_bytes = program_id.to_bytes();
         let authority_signature_seeds = [&me_bytes[..32], authority_type, &[bump_seed]];
         let signers = &[&authority_signature_seeds[..]];
 
@@ -516,32 +517,32 @@ impl Processor {
         }
 
         // Get stake pool stake (and check if it is initialized)
-        let mut stake_pool = StakePool::deserialize(&stake_pool_info.data.borrow())?;
-        if !stake_pool.is_initialized() {
+        let mut stake_pool_data = StakePool::deserialize(&stake_pool_info.data.borrow())?;
+        if !stake_pool_data.is_initialized() {
             return Err(StakePoolError::InvalidState.into());
         }
 
         // Check authority accounts
-        stake_pool.check_authority_withdraw(withdraw_info.key, program_id, stake_pool_info.key)?;
-        stake_pool.check_authority_deposit(deposit_info.key, program_id, stake_pool_info.key)?;
+        stake_pool_data.check_authority_withdraw(withdraw_info.key, program_id, stake_pool_info.key)?;
+        stake_pool_data.check_authority_deposit(deposit_info.key, program_id, stake_pool_info.key)?;
 
         // Check owner validity and signature
-        stake_pool.check_owner(owner_info)?;
+        stake_pool_data.check_owner(owner_info)?;
 
         // Check stake pool last update epoch
-        if stake_pool.last_update_epoch < clock.epoch {
+        if stake_pool_data.last_update_epoch < clock.epoch {
             return Err(StakePoolError::StakeListAndPoolOutOfDate.into());
         }
 
-        if stake_pool.token_program_id != *token_program_info.key {
+        if stake_pool_data.token_program_id != *token_program_info.key {
             return Err(ProgramError::IncorrectProgramId);
         }
-        if stake_pool.pool_mint != *pool_mint_info.key {
+        if stake_pool_data.pool_mint != *pool_mint_info.key {
             return Err(StakePoolError::WrongPoolMint.into());
         }
 
         // Check validator stake account list storage
-        if *validator_stake_list_info.key != stake_pool.validator_stake_list {
+        if *validator_stake_list_info.key != stake_pool_data.validator_stake_list {
             return Err(StakePoolError::InvalidValidatorStakeList.into());
         }
 
@@ -569,7 +570,7 @@ impl Processor {
                 stake_account_info.clone(),
                 deposit_info.clone(),
                 Self::AUTHORITY_DEPOSIT,
-                stake_pool.deposit_bump_seed,
+                stake_pool_data.deposit_bump_seed,
                 withdraw_info.key,
                 *authority,
                 clock_info.clone(),
@@ -579,7 +580,7 @@ impl Processor {
 
         // Calculate and mint tokens
         let stake_lamports = **stake_account_info.lamports.borrow();
-        let token_amount = stake_pool
+        let token_amount = stake_pool_data
             .calc_pool_deposit_amount(stake_lamports)
             .ok_or(StakePoolError::CalculationFailure)?;
         Self::token_mint_to(
@@ -589,7 +590,7 @@ impl Processor {
             dest_user_info.clone(),
             withdraw_info.clone(),
             Self::AUTHORITY_WITHDRAW,
-            stake_pool.withdraw_bump_seed,
+            stake_pool_data.withdraw_bump_seed,
             token_amount,
         )?;
 
@@ -605,10 +606,10 @@ impl Processor {
         validator_stake_list.serialize(&mut validator_stake_list_info.data.borrow_mut())?;
 
         // Save amounts to the stake pool state
-        stake_pool.pool_total += token_amount;
+        stake_pool_data.pool_total += token_amount;
         // Only update stake total if the last state update epoch is current
-        stake_pool.stake_total += stake_lamports;
-        stake_pool.serialize(&mut stake_pool_info.data.borrow_mut())?;
+        stake_pool_data.stake_total += stake_lamports;
+        stake_pool_data.serialize(&mut stake_pool_info.data.borrow_mut())?;
 
         Ok(())
     }
@@ -870,6 +871,193 @@ impl Processor {
         Ok(())
     }
 
+    /// Unpacks a spl_token `Account`.
+    pub fn unpack_token_account(
+        account_info: &AccountInfo,
+        token_program_id: &Pubkey,
+
+    ) -> Result<spl_token::state::Account, StakePoolError> {
+
+        if account_info.owner != token_program_id {
+            Err(StakePoolError::IncorrectTokenProgramId)
+        } 
+        else {
+            spl_token::state::Account::unpack(&account_info.data.borrow())
+                .map_err(|_| StakePoolError::ExpectedAccount)
+        }
+    }
+
+    /// Unpacks a spl_token `Mint`.
+    pub fn unpack_mint(
+        account_info: &AccountInfo,
+        token_program_id: &Pubkey,
+    ) -> Result<spl_token::state::Mint, StakePoolError> {
+        if account_info.owner != token_program_id {
+            Err(StakePoolError::IncorrectTokenProgramId)
+        } else {
+            spl_token::state::Mint::unpack(&account_info.data.borrow())
+                .map_err(|_| StakePoolError::ExpectedMint)
+        }
+    }
+    
+    // #[allow(clippy::too_many_arguments)]
+    // fn check_accounts(
+    //     program_id: &Pubkey,
+    //     authority_info: &AccountInfo,
+    //     source_account_info: &AccountInfo,
+    //     token_b_info: &AccountInfo,
+    //     pool_mint_info: &AccountInfo,
+    //     token_program_info: &AccountInfo,
+    //     user_token_a_info: Option<&AccountInfo>,
+    //     user_token_b_info: Option<&AccountInfo>,
+    //     pool_fee_account_info: Option<&AccountInfo>,
+
+    // ) -> ProgramResult {
+
+    //     if source_account_info.owner != program_id {
+    //         return Err(ProgramError::IncorrectProgramId);
+    //     }
+    //     if *source_account_info.key != *token_swap.token_a_account() {
+    //         return Err(StakePoolError::IncorrectSwapAccount.into());
+    //     }
+    //     if *token_b_info.key != *token_swap.token_b_account() {
+    //         return Err(StakePoolError::IncorrectSwapAccount.into());
+    //     }
+    //     if *pool_mint_info.key != *token_swap.pool_mint() {
+    //         return Err(StakePoolError::IncorrectPoolMint.into());
+    //     }
+    //     if *token_program_info.key != *token_swap.token_program_id() {
+    //         return Err(StakePoolError::IncorrectTokenProgramId.into());
+    //     }
+    //     if let Some(user_token_a_info) = user_token_a_info {
+    //         if source_account_info.key == user_token_a_info.key {
+    //             return Err(StakePoolError::InvalidInput.into());
+    //         }
+    //     }
+    //     if let Some(user_token_b_info) = user_token_b_info {
+    //         if token_b_info.key == user_token_b_info.key {
+    //             return Err(StakePoolError::InvalidInput.into());
+    //         }
+    //     }
+    //     if let Some(pool_fee_account_info) = pool_fee_account_info {
+    //         if *pool_fee_account_info.key != *token_swap.pool_fee_account() {
+    //             return Err(StakePoolError::IncorrectFeeAccount.into());
+    //         }
+    //     }
+    //     Ok(())
+    // }
+
+    /// Issue a spl_token `Transfer` instruction.
+    pub fn token_transfer<'a>(
+        owner: &Pubkey,
+        token_program: AccountInfo<'a>,
+        source: AccountInfo<'a>,
+        destination: AccountInfo<'a>,
+        authority: AccountInfo<'a>,
+        nonce: u8,
+        amount: u64,
+    ) -> Result<(), ProgramError> {
+        let swap_bytes = owner.to_bytes();
+        let authority_signature_seeds = [&swap_bytes[..32], &[nonce]];
+        let signers = &[&authority_signature_seeds[..]];
+        let ix = spl_token::instruction::transfer(
+            token_program.key,
+            source.key,
+            destination.key,
+            authority.key,
+            &[],
+            amount,
+        )?;
+        invoke_signed(
+            &ix,
+            &[source, destination, authority, token_program],
+            signers,
+        )
+    }
+    
+    /// Processes [AddLiquidity](enum.Instruction.html).
+    pub fn process_add_liquidity(
+
+        program_id: &Pubkey,
+        wsol_amount: u64,
+        accounts: &[AccountInfo],
+
+    ) -> ProgramResult {
+
+        if wsol_amount == 0 {
+            return Err(StakePoolError::ZeroAmount.into());
+        }
+
+        let account_info_iter = &mut accounts.iter();
+
+        // Stake pool account
+        let stake_pool_info = next_account_info(account_info_iter)?;
+
+        let token_program = next_account_info(account_info_iter)?;
+        let metalp_token_mint_account = next_account_info(account_info_iter)?;
+
+        let metalp_mint_withdraw_authority = next_account_info(account_info_iter)?;
+
+        let user_wsol_source_account = next_account_info(account_info_iter)?;
+        let user_transfer_authority_info = next_account_info(account_info_iter)?;
+
+        let liq_pool_wsol_dest_account = next_account_info(account_info_iter)?;
+        let user_metalp_account_destination = next_account_info(account_info_iter)?;
+
+        // Get stake pool stake (and check if it is initialized)
+        let stake_pool_data = StakePool::deserialize(&stake_pool_info.data.borrow())?;
+        if !stake_pool_data.is_initialized() {
+            return Err(StakePoolError::InvalidState.into());
+        }
+
+        //get data from spl-token accounts
+        //let source_account_info: spl_token::state::Account = Self::unpack_token_account(user_wsol_source_account, &program_id)?;
+        //let dest_user_account_info: spl_token::state::Account = Self::unpack_token_account(user_metalp_account_destination, &program_id)?;
+
+        // TODO
+        // Self::check_accounts(
+        //     program_id,
+        //     authority_info,
+        //     user_wsol_source_account,
+        //     liq_pool_wsol_dest_account,
+        //     metalp_token_mint_account,
+        //     liq_pool_wsol_dest_account,
+        // )?;
+
+        let metalp_mint_info = Self::unpack_mint(metalp_token_mint_account, &program_id)?;
+        let metalp_supply = to_u128(metalp_mint_info.supply)?;
+
+        let our_wsol_token_info = Self::unpack_token_account(liq_pool_wsol_dest_account, &program_id)?;
+        let our_wsol_total = to_u128(our_wsol_token_info.amount)?;
+
+        //transfer user wsol to our wsol account
+        Self::token_transfer(
+            user_transfer_authority_info.key,
+            token_program.clone(),
+            user_wsol_source_account.clone(),
+            liq_pool_wsol_dest_account.clone(),
+            user_transfer_authority_info.clone(),
+            0,
+            wsol_amount,
+        )?;
+
+        // Calculate metalp amount and mint metalp tokens for the user
+        let metalp_amount = shares_from_value(wsol_amount, our_wsol_total, metalp_supply).ok_or(StakePoolError::CalculationFailure)?;
+        Self::token_mint_to(
+            &program_id,
+            token_program.clone(),
+            metalp_token_mint_account.clone(),
+            user_metalp_account_destination.clone(),
+            metalp_mint_withdraw_authority.clone(),
+            Self::AUTHORITY_WITHDRAW,
+            0,
+            metalp_amount,
+        )?;
+
+        Ok(())
+    }
+
+    
     /// Processes [Deposit](enum.Instruction.html).
     pub fn process_deposit(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
@@ -1031,7 +1219,7 @@ impl Processor {
             stake_pool.withdraw_bump_seed,
             fee_amount,
         )?;
-        //update total toekns/shares 
+        //update total tokens/shares 
         stake_pool.pool_total += pool_amount;
         //update total staked
         stake_pool.stake_total += stake_lamports;
@@ -1047,7 +1235,7 @@ impl Processor {
     }
 
     /// Processes [Withdraw](enum.Instruction.html).
-    /// split contract's staking acc into stake_split_to and assigns authority to the user
+    /// split contract's staking acc into stake_split_to and assigns authority to user_stake_authority
     pub fn process_withdraw(
         program_id: &Pubkey,
         pool_amount: u64,
@@ -1315,6 +1503,10 @@ impl Processor {
                 msg!("Instruction: SetOwner");
                 Self::process_set_owner(program_id, accounts)
             }
+            StakePoolInstruction::AddLiquidity(wsol_amount) => {
+                msg!("Instruction: AddLiquidity");
+                Self::process_add_liquidity(program_id, wsol_amount, accounts)
+            }
         }
     }
 }
@@ -1344,11 +1536,39 @@ impl PrintProgramError for StakePoolError {
             StakePoolError::InvalidStakeAccountAddress => msg!("Error: Stake account address not properly derived from the validator address"),
             StakePoolError::StakeListOutOfDate => msg!("Error: Identify validator stake accounts with old balances and update them"),
             StakePoolError::StakeListAndPoolOutOfDate => msg!("Error: First update old validator stake account balances and then pool stake balance"),
-            StakePoolError::UnknownValidatorStakeAccount => {
-                msg!("Error: Validator stake account is not found in the list storage")
-            }
+            StakePoolError::UnknownValidatorStakeAccount => {msg!("Error: Validator stake account is not found in the list storage")}
             StakePoolError::WrongMintingAuthority => msg!("Error: Wrong minting authority set for mint pool account"),
             StakePoolError::AccountNotRentExempt => msg!("Error: Account is not rent-exempt"),
+            StakePoolError::IncorrectTokenProgramId=> msg!("Error: IncorrectTokenProgramId"),
+            StakePoolError::ExpectedMint=> msg!("Error: Expected a Mint Account"),
+            StakePoolError::ExpectedAccount=> msg!("Error: Expected an Account"),
+            StakePoolError::ZeroAmount=> msg!("Error: Amount must greater than zero"),
+            StakePoolError::ConversionFailure=> msg!("Error: Data Conversion Failure"),
         }
     }
+}
+
+fn to_u128(val: u64) -> Result<u128, StakePoolError> {
+    val.try_into().map_err(|_| StakePoolError::ConversionFailure)
+}
+
+fn value_from_shares(shares: u64, total_value:u128, total_shares:u128) -> Option<u64> {
+    return proportional(shares, total_value,total_shares);
+}
+fn shares_from_value(value: u64, total_value:u128, total_shares:u128) -> Option<u64> {
+    return proportional(value, total_shares,total_value);
+}
+
+/// calculate amount*numerator/denominator
+/// as value  = shares * share_price where share_price=total_value/total_shares
+/// or shares = amount_value / share_price where share_price=total_value/total_shares 
+///     => shares = amount_value * 1/share_price where 1/share_price=total_shares/total_value
+fn proportional(amount: u64, numerator:u128, denominator:u128) -> Option<u64> {
+    if denominator == 0 { return Some(amount); }
+    u64::try_from(
+        (amount as u128)
+            .checked_mul(numerator)?
+            .checked_div(denominator)?,
+    )
+    .ok()
 }

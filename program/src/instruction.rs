@@ -32,7 +32,7 @@ pub struct InitArgs {
 #[repr(C)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum StakePoolInstruction {
-    ///   Initializes a new StakePool.
+    ///   Admin: Initializes a new StakePool.
     ///
     ///   0. `[w]` New StakePool to create.
     ///   1. `[s]` Owner
@@ -44,7 +44,7 @@ pub enum StakePoolInstruction {
     ///   7. `[]` Token program id
     Initialize(InitArgs),
 
-    ///   Creates new program account for accumulating stakes for a particular validator
+    ///   Admin: Creates new program account for accumulating stakes for a particular validator
     ///
     ///   0. `[]` Stake pool account this stake will belong to
     ///   1. `[ws]` Funding account (must be a system account)
@@ -57,7 +57,7 @@ pub enum StakePoolInstruction {
     ///   8. `[]` Stake program
     CreateValidatorStakeAccount,
 
-    ///   Adds validator stake account to the pool
+    ///   Admin: Adds validator stake account to the pool
     ///
     ///   0. `[w]` Stake pool
     ///   1. `[s]` Owner
@@ -73,7 +73,7 @@ pub enum StakePoolInstruction {
     ///  11. `[]` Stake program id,
     AddValidatorStakeAccount,
 
-    ///   Removes validator stake account from the pool
+    ///   Admin: Removes validator stake account from the pool
     ///
     ///   0. `[w]` Stake pool
     ///   1. `[s]` Owner
@@ -88,21 +88,21 @@ pub enum StakePoolInstruction {
     ///  10. `[]` Stake program id,
     RemoveValidatorStakeAccount,
 
-    ///   Updates balances of validator stake accounts in the pool
+    ///   Anyone: Updates balances of validator stake accounts in the pool
     ///   
     ///   0. `[w]` Validator stake list storage account
     ///   1. `[]` Sysvar clock account
     ///   2. ..2+N ` [] N validator stake accounts to update balances
     UpdateListBalance,
 
-    ///   Updates total pool balance based on balances in validator stake account list storage
+    ///   Anyone: Updates total pool balance based on balances in validator stake account list storage
     ///
     ///   0. `[w]` Stake pool
     ///   1. `[]` Validator stake list storage account
     ///   2. `[]` Sysvar clock account
     UpdatePoolBalance,
 
-    ///   Deposit some stake into the pool.  The output is a "pool" token representing ownership
+    ///   User: Deposit some stake into the pool.  The output is a "pool" token representing ownership
     ///   into the pool. Inputs are converted to the current ratio.
     ///
     ///   0. `[w]` Stake pool
@@ -120,8 +120,9 @@ pub enum StakePoolInstruction {
     ///   12. `[]` Stake program id,
     Deposit,
 
-    ///   Withdraw the token from the pool at the current ratio.
-    ///   The amount withdrawn is the MIN(u64, stake size)
+    ///   User: "Withdraw". Burn the token and return a staked account whose value reflects burned tokens value
+    ///   How: move staked acc into (4.Unitialized stake account to receive withdrawal) and assigns authority to (5. `[]` User account to set as a new withdraw authority)
+    ///   Basic asserts: amount withdrawn <= stake size
     ///
     ///   0. `[w]` Stake pool
     ///   1. `[w]` Validator stake list storage account
@@ -137,7 +138,29 @@ pub enum StakePoolInstruction {
     ///   userdata: amount to withdraw
     Withdraw(u64),
 
-    ///   Update the staking pubkey for a stake
+    ///   Liq.Provider: Deposit some wSOL into the stSOL->wSOL LP. The output is a "LP" token representing LP shares
+    ///
+    ///   Deposit wsol into the LP. The output is a "metalp" token
+    ///   representing ownership into the LP.
+    ///
+    ///   0. `[]` Stake pool
+    ///   1. `[]` SPL Token Program
+    ///   2. `[w]` $METALP token mint account
+    ///   3. `[]` $METALP mint/withdraw authority
+    ///   4. `[w]` User account with wsol to transfer from
+    ///   5. `[]` withdraw authority to remove wsol from user account
+    ///   6. `[w]` Unitialized account to receive METALP
+    ///   userdata: amount to withdraw
+    AddLiquidity(u64),
+
+    ///   User: "Sell stSOL". Burn the token and return a SOL account whose value reflects burned tokens value
+    ///   How: move SOL from LP to user acc (4.Unitialized account to receive withdrawal) and assigns authority to (5. `[]` User account to set as a new withdraw authority)
+    ///   Basic asserts: amount withdrawn <= stake size
+    ///
+    ///   userdata: amount to sell
+    // TODO: SellstSOL(u64),
+
+    ///   Admin: Update the staking pubkey for a stake
     ///
     ///   0. `[w]` StakePool
     ///   1. `[s]` Owner
@@ -148,7 +171,7 @@ pub enum StakePoolInstruction {
     ///   6. `[]` Stake program id,
     SetStakingAuthority,
 
-    ///   Update owner
+    ///   Admin: Update owner
     ///
     ///   0. `[w]` StakePool
     ///   1. `[s]` Owner
@@ -225,6 +248,12 @@ impl StakePoolInstruction {
             }
             Self::SetOwner => {
                 output[0] = 9;
+            }
+            Self::AddLiquidity(val) => {
+                output[0] = 10;
+                #[allow(clippy::cast_ptr_alignment)]
+                let value = unsafe { &mut *(&mut output[1] as *mut u8 as *mut u64) };
+                *value = *val;
             }
         }
         Ok(output)

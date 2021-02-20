@@ -43,6 +43,7 @@ pub struct StakePool {
     /// Fee applied to deposits
     pub fee: Fee,
 }
+
 impl StakePool {
     /// Length of state data when serialized
     pub const LEN: usize = size_of::<StakePool>();
