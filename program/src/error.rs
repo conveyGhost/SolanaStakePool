@@ -88,7 +88,11 @@ pub enum StakePoolError {
     /// ConversionFailure
     #[error("ConversionFailure")]
     ConversionFailure,
+    /// NotEnoughTokensInThePool
+    #[error("NotEnoughTokensInThePool")]
+    NotEnoughTokensInThePool,
 }
+
 impl From<StakePoolError> for ProgramError {
     fn from(e: StakePoolError) -> Self {
         ProgramError::Custom(e as u32)

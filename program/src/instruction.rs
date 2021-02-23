@@ -143,7 +143,7 @@ pub enum StakePoolInstruction {
     ///   Deposit wsol into the LP. The output is a "metalp" token
     ///   representing ownership into the LP.
     ///
-    ///   0. `[]` Stake pool
+    ///   0. `[]` Stake pool (meta Stake pool program instance state)
     ///   1. `[]` SPL Token Program
     ///   2. `[w]` $METALP token mint account
     ///   3. `[]` $METALP mint/withdraw authority
@@ -153,12 +153,20 @@ pub enum StakePoolInstruction {
     ///   userdata: amount to withdraw
     AddLiquidity(u64),
 
-    ///   User: "Sell stSOL". Burn the token and return a SOL account whose value reflects burned tokens value
-    ///   How: move SOL from LP to user acc (4.Unitialized account to receive withdrawal) and assigns authority to (5. `[]` User account to set as a new withdraw authority)
-    ///   Basic asserts: amount withdrawn <= stake size
+    ///   User: "Sell stSOL". Burn the token and return a wSOL account whose value reflects burned tokens value
+    ///   How: move wSOL from LP to user acc (4.Unitialized account to receive withdrawal) and assigns authority to (5. `[]` User account to set as a new withdraw authority)
+    ///   Basic asserts: amount withdrawn <= wSOL in the pool
     ///
+    ///   0. `[]` Stake Pool (meta Stake pool program instance state)
+    ///   1. `[]` SPL Token Program
+    ///   2. `[w]` stSOL token mint account
+    ///   3. `[]` stSOL burn/mint/withdraw authority
+    ///   4. `[w]` User account with stSOL to transfer from
+    ///   5. `[]` withdraw authority to remove stSOL from user account
+    ///   6. `[w]` Unitialized account to receive wSOL
     ///   userdata: amount to sell
-    // TODO: SellstSOL(u64),
+    SellstSOL(u64),
+
 
     ///   Admin: Update the staking pubkey for a stake
     ///
@@ -250,6 +258,12 @@ impl StakePoolInstruction {
                 output[0] = 9;
             }
             Self::AddLiquidity(val) => {
+                output[0] = 10;
+                #[allow(clippy::cast_ptr_alignment)]
+                let value = unsafe { &mut *(&mut output[1] as *mut u8 as *mut u64) };
+                *value = *val;
+            }
+            Self::SellstSOL(val) => {
                 output[0] = 10;
                 #[allow(clippy::cast_ptr_alignment)]
                 let value = unsafe { &mut *(&mut output[1] as *mut u8 as *mut u64) };
