@@ -984,6 +984,8 @@ impl Processor {
 
     ) -> ProgramResult {
 
+        msg!("enter");
+
         if wsol_amount == 0 {
             return Err(StakePoolError::ZeroAmount.into());
         }
@@ -995,7 +997,6 @@ impl Processor {
 
         let token_program = next_account_info(account_info_iter)?;
         let metalp_token_mint_account = next_account_info(account_info_iter)?;
-
         let metalp_mint_withdraw_authority = next_account_info(account_info_iter)?;
 
         let user_wsol_source_account = next_account_info(account_info_iter)?;
@@ -1005,6 +1006,7 @@ impl Processor {
         let user_metalp_account_destination = next_account_info(account_info_iter)?;
 
         // Get stake pool stake (and check if it is initialized)
+        msg!("stake_pool_info {:?}",stake_pool_info);
         let stake_pool_data = StakePool::deserialize(&stake_pool_info.data.borrow())?;
         if !stake_pool_data.is_initialized() {
             return Err(StakePoolError::InvalidState.into());

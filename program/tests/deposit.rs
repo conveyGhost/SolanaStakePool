@@ -47,7 +47,8 @@ async fn setup() -> (
     )
 }
 
-#[tokio::test]
+#[tokio::main]
+#[test]
 async fn test_stake_pool_deposit() {
     let (mut banks_client, payer, recent_blockhash, stake_pool_accounts, validator_stake_account) =
         setup().await;

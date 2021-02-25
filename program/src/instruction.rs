@@ -149,7 +149,8 @@ pub enum StakePoolInstruction {
     ///   3. `[]` $METALP mint/withdraw authority
     ///   4. `[w]` User account with wsol to transfer from
     ///   5. `[]` withdraw authority to remove wsol from user account
-    ///   6. `[w]` Unitialized account to receive METALP
+    ///   4. `[w]` Liq-pool dest account - Liq.pool acc to receive wSOL
+    ///   6. `[w]` user Unitialized account to receive METALP
     ///   userdata: amount to withdraw
     AddLiquidity(u64),
 
@@ -481,6 +482,40 @@ pub fn deposit(
         AccountMeta::new_readonly(sysvar::stake_history::id(), false),
         AccountMeta::new_readonly(*token_program_id, false),
         AccountMeta::new_readonly(*stake_program_id, false),
+    ];
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
+    })
+}
+
+///create instruciton add_liquidity
+pub fn instruction_add_liquidity(
+    amount:u64,
+    program_id: &Pubkey,
+    stake_pool_state_account: &Pubkey,
+    spl_token_program_id: &Pubkey,
+    meta_lp_mint_account: &Pubkey,
+    meta_lp_mint_authority: &Pubkey,
+    user_wsol_source_account: &Pubkey,
+    user_wsol_withdraw_auth: &Pubkey,
+    liq_pool_wsol_dest_account: &Pubkey,
+    user_dest_meta_lp_account: &Pubkey,
+
+) -> Result<Instruction, ProgramError> {
+
+    let args = StakePoolInstruction::AddLiquidity(amount);
+    let data = args.serialize()?;
+    let accounts = vec![
+        AccountMeta::new_readonly(*stake_pool_state_account, false),
+        AccountMeta::new_readonly(*spl_token_program_id, false),
+        AccountMeta::new(*meta_lp_mint_account, false),
+        AccountMeta::new_readonly(*meta_lp_mint_authority, false),
+        AccountMeta::new(*user_wsol_source_account, false),
+        AccountMeta::new_readonly(*user_wsol_withdraw_auth, false),
+        AccountMeta::new(*liq_pool_wsol_dest_account, false),
+        AccountMeta::new(*user_dest_meta_lp_account, false),
     ];
     Ok(Instruction {
         program_id: *program_id,

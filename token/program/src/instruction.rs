@@ -640,7 +640,7 @@ pub fn initialize_mint(
     })
 }
 
-/// Creates a `InitializeAccount` instruction.
+/// Creates a `TOKEN.InitializeAccount` instruction.
 pub fn initialize_account(
     token_program_id: &Pubkey,
     account_pubkey: &Pubkey,

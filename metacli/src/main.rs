@@ -10,14 +10,25 @@ Creating pool fee collection account EG42YnCDMx1ham3NVryGM71yiCo3zNSyJ1ktPvguFtq
 Creating stake pool C3WQybyZc45bhRP4PJnM7JhKQFXmqQR5eWr8n8Lxjgex
 Signature: 5AdVComuwVXbcyD2MmXNMgAKGx7aE1o8eXXzCgvmxjdgoPmr7Hd5xL28NARTH88PGbGb3ZzxbkjYKcpgic5fUDTY
 */
+const W_SOL_1111111_MINT_ACCOUNT:&str="So11111111111111111111111111111111111111112";
 const ST_SOL_MINT_ACCOUNT:&str="21ofzqmgounc8bX4CK6j3Ff4zjvX6GmRykUnJAU96zKz";
 const POOL_FEE_COLLECTION_ACCOUNT:&str="EG42YnCDMx1ham3NVryGM71yiCo3zNSyJ1ktPvguFtqE";
-const POOL_ACCOUNT_ID:&str="C3WQybyZc45bhRP4PJnM7JhKQFXmqQR5eWr8n8Lxjgex";
+const STAKE_POOL_STATE_ACCOUNT:&str="C3WQybyZc45bhRP4PJnM7JhKQFXmqQR5eWr8n8Lxjgex";
 
-//Creating mint HVrdtDVPsWHDec5YZQoQ4Zf9Ew4EeTcxLWoCaXAU4Bib
-//Creating liquidity pool FX1c3XJwtjvGQu9ZyGGBQn78EjarNfPcSyyKvCapq6iH
-const META_LP_MINT_ACCOUNT:&str="HVrdtDVPsWHDec5YZQoQ4Zf9Ew4EeTcxLWoCaXAU4Bib"; 
-const LIQ_POOL_ACCOUNT:&str="FX1c3XJwtjvGQu9ZyGGBQn78EjarNfPcSyyKvCapq6iH"; 
+/*
+lucio@lucio-kde:~/repos/StakePool/metacli/target/debug$ ./meta create-liq-pool
+Creating meta_lp mint 4XMfT5tKJzXXzaw1u5VSUec5av6NBPAbiULnUpQ76YGX
+Creating liquidity pool rxTBFFRfwcgx5YedbwLcKntCwMs9tJoQvzYmRnbpLKS
+Creating the 2 sides of the pool, wsol & st_sol accounts 
+liquidity pool wsol account: 7efxCKtTp5DDScftcEFSsxHPgqAk8WxuRAi786cg3qBZ
+liquidity pool st_sol account: DWB8abtU8B2A3EQpY2dWxaHnPiVwXgHRQSaGBGAgdBj7
+*/
+const META_LP_MINT_ACCOUNT:&str="4XMfT5tKJzXXzaw1u5VSUec5av6NBPAbiULnUpQ76YGX"; 
+/// authority/owner for token accounts: LIQ_POOL_WSOL_ACCOUNT & LIQ_POOL_STSOL_ACCOUNT
+const LIQ_POOL_ACCOUNT:&str="rxTBFFRfwcgx5YedbwLcKntCwMs9tJoQvzYmRnbpLKS"; 
+/// wSOL token account 
+const LIQ_POOL_WSOL_ACCOUNT:&str="7efxCKtTp5DDScftcEFSsxHPgqAk8WxuRAi786cg3qBZ"; //TODO
+const LIQ_POOL_ST_SOL_ACCOUNT:&str="DWB8abtU8B2A3EQpY2dWxaHnPiVwXgHRQSaGBGAgdBj7"; //TODO
 
 //const POOL_WITHDRAW_AUTHORITY:&str="AbowvTAChFKVLgkzxreZbPBHL5r4JNjBqkAGu751NCLz";
 //Signature: 4cH5GupXVHJSVrj9oXtpZ1hs6Q3nEUT7bHvDF6obiJA1CgdcvrL5YgNiaDwYeNezinvXQhLrQUy2YR3MTCoxTjTx
@@ -55,6 +66,7 @@ use spl_stake_pool::{
         add_validator_stake_account, create_validator_stake_account, deposit, //
         initialize as initialize_pool, remove_validator_stake_account, set_owner,
         set_staking_authority, update_list_balance, update_pool_balance, withdraw, Fee as PoolFee,
+        instruction_add_liquidity,
         InitArgs as PoolInitArgs,
     },
     processor::Processor as PoolProcessor,
@@ -66,7 +78,7 @@ use spl_stake_pool::{
     state::ValidatorStakeList,
 };
 use spl_token::{
-    self, instruction::approve as approve_token, instruction::initialize_account,
+    self, instruction::approve as approve_token, instruction::initialize_account as initialize_token_account,
     instruction::initialize_mint, native_mint, state::Account as TokenAccount,
     state::Mint as TokenMint,
 };
@@ -80,8 +92,11 @@ struct Config {
     commitment_config: CommitmentConfig,
 
     meta_pool_program_id: Pubkey,
-    pool_account_id: Pubkey,
-    st_sol_mint_account_id: Pubkey,
+    stake_pool_state_account: Pubkey,
+    st_sol_mint_account: Pubkey,
+    meta_lp_mint_account: Pubkey,
+
+    liq_pool_wsol_dest_account: Pubkey,
 }
 
 type Error = Box<dyn std::error::Error>;
@@ -241,7 +256,7 @@ fn command_create_pool(config: &Config, fee: PoolFee) -> CommandResult {
                 default_decimals,
             )?,
             // Initialize fee receiver account
-            initialize_account(
+            initialize_token_account(
                 &spl_token::id(),
                 &pool_fee_account.pubkey(),
                 &mint_account.pubkey(),
@@ -282,8 +297,9 @@ fn command_create_pool(config: &Config, fee: PoolFee) -> CommandResult {
 */
 
 fn command_create_liquidity_pool(config: &Config) -> CommandResult {
-    let mint_account = Keypair::new();
-    println!("Creating mint {}", mint_account.pubkey());
+
+    let st_sol_mint_account = Keypair::new();
+    println!("Creating meta_lp mint {}", st_sol_mint_account.pubkey());
 
     // let pool_fee_account = Keypair::new();
     // println!(
@@ -305,47 +321,65 @@ fn command_create_liquidity_pool(config: &Config) -> CommandResult {
     let pool_account_balance = config
         .rpc_client
         .get_minimum_balance_for_rent_exemption(StakePool::LEN)?;
-    let validator_stake_list_balance = config
-        .rpc_client
-        .get_minimum_balance_for_rent_exemption(ValidatorStakeList::LEN)?;
     let total_rent_free_balances = mint_account_balance
         + pool_fee_account_balance
-        + pool_account_balance
-        + validator_stake_list_balance;
+        + pool_account_balance;
 
     let default_decimals = native_mint::DECIMALS;
 
     // Calculate withdraw authority used for minting pool tokens
-    let (withdraw_authority, _) = PoolProcessor::find_authority_bump_seed(
-        &spl_stake_pool::id(),
+    let (lp_withdraw_authority, _) = PoolProcessor::find_authority_bump_seed(
+        &config.meta_pool_program_id,
         &liq_pool_account.pubkey(),
         PoolProcessor::AUTHORITY_WITHDRAW,
     );
 
     if config.verbose {
-        println!("liq pool withdraw authority {}", withdraw_authority);
+        println!("liq pool withdraw authority {}", lp_withdraw_authority);
     }
+
+    println!(
+        "Creating the 2 sides of the pool, wsol & st_sol accounts "
+    );
+    let pool_wsol_account = Keypair::new();
+    println!(
+        "liquidity pool wsol account: {}",
+        pool_wsol_account.pubkey()
+    );
+    let pool_st_sol_account = Keypair::new();
+    println!(
+        "liquidity pool st_sol account: {}",
+        pool_st_sol_account.pubkey()
+    );
 
     let mut transaction = Transaction::new_with_payer(
         &[
             // Account for the stake pool mint
             system_instruction::create_account(
                 &config.fee_payer.pubkey(),
-                &mint_account.pubkey(),
+                &st_sol_mint_account.pubkey(),
                 mint_account_balance,
                 TokenMint::LEN as u64,
                 &spl_token::id(),
             ),
-            // // Account for the pool fee accumulation
-            // system_instruction::create_account(
-            //     &config.fee_payer.pubkey(),
-            //     &pool_fee_account.pubkey(),
-            //     pool_fee_account_balance,
-            //     TokenAccount::LEN as u64,
-            //     &spl_token::id(),
-            // ),
+            // One side of the liq-pool, the wSOL side - TokenAccount::LEN as u64, native empty account to initialize 
+             system_instruction::create_account(
+                 &config.fee_payer.pubkey(),
+                 &pool_wsol_account.pubkey(),
+                 pool_fee_account_balance,
+                 TokenAccount::LEN as u64,
+                 &spl_token::id(),
+             ),
+            // the other  - TokenAccount::LEN as u64, native empty account to initialize 
+            system_instruction::create_account(
+                &config.fee_payer.pubkey(),
+                &pool_st_sol_account.pubkey(),
+                pool_fee_account_balance,
+                TokenAccount::LEN as u64,
+                &spl_token::id(),
+            ),
 
-            // Account for the stake pool
+            // Account for the liq pool wSOL
             system_instruction::create_account(
                 &config.fee_payer.pubkey(),
                 &liq_pool_account.pubkey(),
@@ -366,19 +400,27 @@ fn command_create_liquidity_pool(config: &Config) -> CommandResult {
             // Initialize pool token mint account
             initialize_mint(
                 &spl_token::id(),
-                &mint_account.pubkey(),
-                &withdraw_authority,
+                &st_sol_mint_account.pubkey(),
+                &lp_withdraw_authority,
                 None,
                 default_decimals,
             )?,
 
-            // // Initialize fee receiver account
-            // initialize_account(
-            //     &spl_token::id(),
-            //     &pool_fee_account.pubkey(),
-            //     &mint_account.pubkey(),
-            //     &config.owner.pubkey(),
-            // )?,
+            // Initialize both sides of the pool, 
+            // w-sol side
+            initialize_token_account(
+                &spl_token::id(),
+                &pool_wsol_account.pubkey(),
+                &String::from(W_SOL_1111111_MINT_ACCOUNT).parse().unwrap(),
+                &lp_withdraw_authority, //"token-owner" is like authorithy, we need a PDA so the program can "sign but not sign" txns
+            )?,
+            // st-sol side
+            initialize_token_account(
+                &spl_token::id(),
+                &pool_st_sol_account.pubkey(),
+                &st_sol_mint_account.pubkey(),
+                &lp_withdraw_authority, //"token-owner" is like authorithy, we need a PDA so the program can "sign but not sign" txns
+            )?,
 
             // Initialize stake pool account
             // initialize_pool(
@@ -404,8 +446,9 @@ fn command_create_liquidity_pool(config: &Config) -> CommandResult {
         config.fee_payer.as_ref(),
         &liq_pool_account,
         //&validator_stake_list,
-        &mint_account,
-        //&pool_fee_account,
+        &st_sol_mint_account,
+        &pool_st_sol_account,
+        &pool_wsol_account,
         config.owner.as_ref(),
     ];
     unique_signers!(signers);
@@ -645,7 +688,7 @@ where
                     &spl_token::id(),
                 ),
                 // Initialize token receiver account
-                initialize_account(
+                initialize_token_account(
                     &spl_token::id(),
                     &keypair.pubkey(),
                     mint,
@@ -722,8 +765,9 @@ fn command_deposit(
         pool_data.deposit_bump_seed,
     )
     .unwrap();
-    let pool_withdraw_authority: Pubkey = PoolProcessor::authority_id(
-        &spl_stake_pool::id(),
+
+    let liq_pool_withdraw_authority: Pubkey = PoolProcessor::authority_id(
+        &config.st_sol_mint_account,
         pool,
         PoolProcessor::AUTHORITY_WITHDRAW,
         pool_data.withdraw_bump_seed,
@@ -751,7 +795,7 @@ fn command_deposit(
             &pool,
             &pool_data.validator_stake_list,
             &pool_deposit_authority,
-            &pool_withdraw_authority,
+            &liq_pool_withdraw_authority,
             &stake,
             &validator_stake_account,
             &token_receiver,
@@ -760,6 +804,76 @@ fn command_deposit(
             &spl_token::id(),
             &stake_program_id(),
         )?,
+    ]);
+
+    let mut transaction =
+        Transaction::new_with_payer(&instructions, Some(&config.fee_payer.pubkey()));
+
+    let (recent_blockhash, fee_calculator) = config.rpc_client.get_recent_blockhash()?;
+    check_fee_payer_balance(
+        config,
+        total_rent_free_balances + fee_calculator.calculate_fee(&transaction.message()),
+    )?;
+    unique_signers!(signers);
+    transaction.sign(&signers, recent_blockhash);
+    Ok(Some(transaction))
+}
+
+
+//-------------------------------------
+fn command_add_liquidity(
+    config: &Config,
+    w_sol_source_account: &Pubkey,
+    amount: u64,
+    token_receiver: &Option<Pubkey>,
+
+) -> CommandResult {
+
+    // Get stake pool state
+    println!("&config.stake_pool_state_account {}",&config.stake_pool_state_account);
+    let meta_pool_data_raw = config.rpc_client.get_account_data(&config.stake_pool_state_account)?;
+    let meta_pool_data: StakePool = StakePool::deserialize(meta_pool_data_raw.as_slice()).unwrap();
+
+    let mut instructions: Vec<Instruction> = vec![];
+    let mut signers = vec![config.fee_payer.as_ref(), config.owner.as_ref()];
+
+    let mut total_rent_free_balances: u64 = 0;
+
+    let token_receiver_account = Keypair::new();
+    // Create token account if not specified
+    let token_receiver = unwrap_create_token_account(
+        &config,
+        &token_receiver,
+        &token_receiver_account,
+        &meta_pool_data.pool_mint,
+        &mut instructions,
+        |balance| {
+            signers.push(&token_receiver_account);
+            total_rent_free_balances += balance;
+        },
+    )?;
+
+    // Calculate withdraw authority used for minting pool tokens
+    let (withdraw_authority, _) = PoolProcessor::find_authority_bump_seed(
+        &spl_stake_pool::id(),
+        &config.meta_lp_mint_account,
+        PoolProcessor::AUTHORITY_WITHDRAW,
+    );
+
+    instructions.extend(vec![
+        // add liq
+        instruction_add_liquidity(
+            amount,
+            &config.meta_pool_program_id,
+            &config.stake_pool_state_account,
+            &spl_token::id(),
+            &config.meta_lp_mint_account,
+            &withdraw_authority,
+            &w_sol_source_account,
+            &config.fee_payer.pubkey(),
+            &config.liq_pool_wsol_dest_account,
+            &token_receiver
+        ).unwrap()
     ]);
 
     let mut transaction =
@@ -1492,6 +1606,28 @@ fn main() {
                 .multiple(true)
             )
         )
+        .subcommand(SubCommand::with_name("add-liquidity").about("Add wSOL amount to wSOL/stSOL Liquidity pool")
+            .arg(
+                Arg::with_name("amount")
+                    .short("a")
+                    .index(1)
+                    .validator(is_amount)
+                    .value_name("AMOUNT")
+                    .takes_value(true)
+                    .required(true)
+                    .help("Amount of wSOL to add."),
+            )
+            .arg(
+                Arg::with_name("source")
+                    .short("s")
+                    .long("source")
+                    .validator(is_pubkey)
+                    .value_name("ADDRESS")
+                    .takes_value(true)
+                    .required(true)
+                    .help("wSOL token account to take wSOL from. Must be owned by the client."),
+            )
+        )
         .get_matches();
 
     let mut wallet_manager = None;
@@ -1534,15 +1670,18 @@ fn main() {
             commitment_config: CommitmentConfig::confirmed(),
 
             meta_pool_program_id: String::from(META_POOL_PROGRAM_ACCOUNT_ID).parse().unwrap(),
-            pool_account_id: String::from(POOL_ACCOUNT_ID).parse().unwrap(),
-            st_sol_mint_account_id: String::from(ST_SOL_MINT_ACCOUNT).parse().unwrap(),
+            stake_pool_state_account: String::from(STAKE_POOL_STATE_ACCOUNT).parse().unwrap(),
+            st_sol_mint_account: String::from(ST_SOL_MINT_ACCOUNT).parse().unwrap(),
+            meta_lp_mint_account:String::from(META_LP_MINT_ACCOUNT).parse().unwrap(),             
+            liq_pool_wsol_dest_account:String::from(LIQ_POOL_WSOL_ACCOUNT).parse().unwrap(),
+            
 
         }
     };
 
     solana_logger::setup_with_default("solana=info");
 
-    let pool_account = config.pool_account_id;
+    let pool_account = config.stake_pool_state_account;
 
     let _ = match matches.subcommand() {
         // ("create-pool", Some(arg_matches)) => {
@@ -1613,6 +1752,15 @@ fn main() {
             let stake_receiver: Option<Pubkey> = pubkey_of(arg_matches, "stake_receiver");
             command_withdraw(&config, &pool_account, amount, &burn_from, &stake_receiver)
         }
+
+        ("add-liquidity", Some(arg_matches)) => {
+            //let pool_account: Pubkey = pubkey_of(arg_matches, "pool").unwrap();
+            let source: Pubkey = pubkey_of(arg_matches, "source").unwrap();
+            // convert from float to int, using sol_to_lamports because they have the same precision as SOL
+            let amount: u64 = sol_to_lamports(value_t_or_exit!(arg_matches, "amount", f64));
+            command_add_liquidity(&config, &source, amount, &None)
+        }
+        
         ("set-staking-auth", Some(arg_matches)) => {
             //let pool_account: Pubkey = pubkey_of(arg_matches, "pool").unwrap();
             
