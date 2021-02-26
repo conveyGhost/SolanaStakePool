@@ -1,5 +1,14 @@
 #![allow(dead_code)]
 
+pub const W_SOL_1111111_MINT_ACCOUNT:&str="So11111111111111111111111111111111111111112";
+
+const META_LP_MINT_ACCOUNT:&str="4XMfT5tKJzXXzaw1u5VSUec5av6NBPAbiULnUpQ76YGX"; 
+/// authority/owner for token accounts: LIQ_POOL_WSOL_ACCOUNT & LIQ_POOL_STSOL_ACCOUNT
+const LIQ_POOL_ACCOUNT:&str="rxTBFFRfwcgx5YedbwLcKntCwMs9tJoQvzYmRnbpLKS"; 
+/// wSOL token account 
+const LIQ_POOL_WSOL_ACCOUNT:&str="7efxCKtTp5DDScftcEFSsxHPgqAk8WxuRAi786cg3qBZ"; //TODO
+const LIQ_POOL_ST_SOL_ACCOUNT:&str="DWB8abtU8B2A3EQpY2dWxaHnPiVwXgHRQSaGBGAgdBj7"; //TODO
+
 use solana_program::{hash::Hash, program_pack::Pack, pubkey::Pubkey, system_instruction};
 use solana_program_test::*;
 use solana_sdk::{
@@ -90,7 +99,9 @@ pub async fn create_token_account(
     account: &Keypair,
     pool_mint: &Pubkey,
     owner: &Pubkey,
+
 ) -> Result<(), TransportError> {
+
     let rent = banks_client.get_rent().await.unwrap();
     let account_rent = rent.minimum_balance(spl_token::state::Account::LEN);
 
@@ -99,7 +110,7 @@ pub async fn create_token_account(
             system_instruction::create_account(
                 &payer.pubkey(),
                 &account.pubkey(),
-                account_rent,
+                10+account_rent,
                 spl_token::state::Account::LEN as u64,
                 &spl_token::id(),
             ),
@@ -258,6 +269,34 @@ pub async fn create_independent_stake_account(
     banks_client.process_transaction(transaction).await.unwrap();
 
     lamports
+}
+
+pub async fn create_account(
+    banks_client: &mut BanksClient,
+    payer: &Keypair,
+    recent_blockhash: &Hash,
+    account: &Keypair,
+) -> Result<(), TransportError> { 
+    
+    let rent = banks_client.get_rent().await.unwrap();
+    let lamports = rent.minimum_balance(state::StakePool::LEN);
+
+    let mut transaction = Transaction::new_with_payer(
+        &[
+            system_instruction::create_account(
+                &payer.pubkey(),
+                &account.pubkey(),
+                lamports,
+                spl_token::state::Account::LEN as u64,
+                &id(),
+            ),
+        ],
+        Some(&payer.pubkey()),
+    );
+    transaction.sign(&[payer, account], *recent_blockhash);
+    banks_client.process_transaction(transaction).await.unwrap();
+
+    Ok(())
 }
 
 pub async fn create_blank_stake_account(
@@ -431,13 +470,22 @@ pub struct StakePoolAccounts {
     pub withdraw_authority: Pubkey,
     pub deposit_authority: Pubkey,
     pub fee: instruction::Fee,
+
+    pub liq_pool_state_acc: Keypair,
+    pub liq_pool_authority: Pubkey,
+    pub meta_lp_mint_acc: Keypair,
+    pub liq_pool_wsol_acc: Keypair,
+    pub liq_pool_st_sol_acc: Keypair,
 }
 
 impl StakePoolAccounts {
+
     pub fn new() -> Self {
+
         let stake_pool = Keypair::new();
         let validator_stake_list = Keypair::new();
         let stake_pool_address = &stake_pool.pubkey();
+
         let (withdraw_authority, _) = Pubkey::find_program_address(
             &[&stake_pool_address.to_bytes()[..32], b"withdraw"],
             &id(),
@@ -446,9 +494,29 @@ impl StakePoolAccounts {
             &[&stake_pool_address.to_bytes()[..32], b"deposit"],
             &id(),
         );
+
         let pool_mint = Keypair::new();
         let pool_fee_account = Keypair::new();
         let owner = Keypair::new();
+
+        let liq_pool_state_acc = Keypair::new();
+        let meta_lp_mint_acc = Keypair::new();
+        let liq_pool_wsol_acc = Keypair::new();
+        let liq_pool_st_sol_acc = Keypair::new();
+
+        // let (liq_pool_authority, _) = Pubkey::find_program_address(
+        //     &[&liq_pool_state_acc.to_bytes()[..32], b"withdraw"],
+        //     &id(),
+        // );
+        // let (liq_pool_authority, bump) = Pubkey::find_program_address(
+        //     &[b"escrow"],
+        //     &id(),
+        // );
+        println!("id {}",&id());
+        println!("&liq_pool_state_acc.pubkey().to_bytes()[..32] {:?}",&liq_pool_state_acc.pubkey().to_bytes()[..32]);
+        let liq_pool_authority = Pubkey::create_program_address(&[&liq_pool_state_acc.pubkey().to_bytes()[..32] ,b"authority",b"0"], &id()).unwrap();
+        //println!("liq_pool_authority {} bump {}",liq_pool_authority,bump);
+        println!("liq_pool_authority {}",liq_pool_authority);
 
         Self {
             stake_pool,
@@ -462,7 +530,12 @@ impl StakePoolAccounts {
                 numerator: 1,
                 denominator: 100,
             },
-        }
+            liq_pool_state_acc,
+            liq_pool_authority,
+            meta_lp_mint_acc,
+            liq_pool_wsol_acc,
+            liq_pool_st_sol_acc,
+            }
     }
 
     pub fn calculate_fee(&self, amount: u64) -> u64 {
@@ -474,7 +547,9 @@ impl StakePoolAccounts {
         mut banks_client: &mut BanksClient,
         payer: &Keypair,
         recent_blockhash: &Hash,
+
     ) -> Result<(), TransportError> {
+
         create_mint(
             &mut banks_client,
             &payer,
@@ -504,8 +579,53 @@ impl StakePoolAccounts {
             &self.fee,
         )
         .await?;
+
+        //liq pool state account (not used yet)
+        create_account(
+            &mut banks_client,
+            &payer,
+            &recent_blockhash,
+            &self.liq_pool_state_acc,
+        )
+        .await?;
+
+        //--LIQ POOL
+
+        // lp wsol acc (1st side of the liq-pool)
+        create_token_account(
+            &mut banks_client,
+            &payer,
+            &recent_blockhash,
+            &self.liq_pool_wsol_acc,
+            &String::from(W_SOL_1111111_MINT_ACCOUNT).parse().unwrap(),
+            &self.liq_pool_authority,
+        )
+        .await?;
+
+        // lp st_sol acc (2nd side of the liq-pool)
+        create_token_account(
+            &mut banks_client,
+            &payer,
+            &recent_blockhash,
+            &self.liq_pool_st_sol_acc,
+            &self.pool_mint.pubkey(),
+            &self.liq_pool_authority,
+        )
+        .await?;
+
+        // meta_lp mint
+        create_mint(
+            &mut banks_client,
+            &payer,
+            &recent_blockhash,
+            &self.meta_lp_mint_acc,
+            &self.liq_pool_authority,
+        )
+        .await?;
+
         Ok(())
     }
+
 
     pub async fn deposit_stake(
         &self,
@@ -634,11 +754,14 @@ impl StakePoolAccounts {
 }
 
 pub async fn simple_add_validator_stake_account(
+
     banks_client: &mut BanksClient,
     payer: &Keypair,
     recent_blockhash: &Hash,
     stake_pool_accounts: &StakePoolAccounts,
+
 ) -> ValidatorStakeAccount {
+
     let user_stake = ValidatorStakeAccount::new_with_target_authority(
         &stake_pool_accounts.deposit_authority,
         &stake_pool_accounts.stake_pool.pubkey(),
@@ -659,6 +782,7 @@ pub async fn simple_add_validator_stake_account(
     )
     .await
     .unwrap();
+
     let error = stake_pool_accounts
         .add_validator_stake_account(
             banks_client,
@@ -669,6 +793,8 @@ pub async fn simple_add_validator_stake_account(
         )
         .await;
     assert!(error.is_none());
+
+    println!("-- end simple_add_validator_stake_account");
 
     user_stake
 }
@@ -732,10 +858,45 @@ pub async fn simple_deposit(
     let user_pool_account = user_pool_account.pubkey();
     let pool_tokens = get_token_balance(banks_client, &user_pool_account).await;
 
-    DepositInfo {
+    return DepositInfo {
         user,
         user_pool_account,
         stake_lamports,
         pool_tokens,
+    }
+}
+
+pub async fn prepare_wsol_deposit(
+    banks_client: &mut BanksClient,
+    payer: &Keypair,
+    recent_blockhash: &Hash,
+
+) -> DepositInfo {
+
+    println!("-- enter prepare_wsol_deposit");
+    let user = Keypair::new();
+    // make pool token account
+    let user_wsol_account = Keypair::new();
+    create_token_account(
+        banks_client,
+        payer,
+        recent_blockhash,
+        &user_wsol_account,
+        &String::from(W_SOL_1111111_MINT_ACCOUNT).parse().unwrap(),
+        &payer.pubkey(),
+    )
+    .await
+    .unwrap();
+
+    let user_wsol_account = user_wsol_account.pubkey();
+    let wsol_tokens = get_token_balance(banks_client, &user_wsol_account).await;
+    
+    println!("-- exit prepare_wsol_deposit");
+
+    return DepositInfo {
+        user,
+        user_pool_account:user_wsol_account,
+        stake_lamports:0,
+        pool_tokens: wsol_tokens,
     }
 }

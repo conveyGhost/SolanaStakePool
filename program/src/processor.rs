@@ -257,8 +257,44 @@ impl Processor {
 
     /// Issue a spl_token `MintTo` instruction.
     #[allow(clippy::too_many_arguments)]
+    pub fn lucio_token_mint_to<'a>(
+        liq_pool_account: &Pubkey,
+        token_program: AccountInfo<'a>,
+        mint: AccountInfo<'a>,
+        destination: AccountInfo<'a>,
+        authority: AccountInfo<'a>,
+        authority_seed1: &[u8],
+        amount: u64,
+    ) -> Result<(), ProgramError> {
+
+        msg!("&liq_pool_account.to_bytes()[..32] {:?}", &liq_pool_account.to_bytes()[..32]);
+        let signer_seeds: &[&[_]] =&[&liq_pool_account.to_bytes()[..32] ,b"authority",b"0"];
+
+        //pub fn mint_to( 
+        // token_program_id: &Pubkey, 
+        // mint_pubkey: &Pubkey, 
+        // account_pubkey: &Pubkey, 
+        // owner_pubkey: &Pubkey, 
+        // signer_pubkeys: &[&Pubkey], 
+        // amount: u64, ) -> Result<Instruction, ProgramError>
+        let ix = spl_token::instruction::mint_to(
+            token_program.key,
+            mint.key,
+            destination.key,
+            authority.key,
+            &[],
+            amount,
+        )?;
+
+        invoke_signed(&ix, 
+            &[mint, destination, authority, token_program], 
+            &[&signer_seeds])
+    }
+
+    /// Issue a spl_token `MintTo` instruction.
+    #[allow(clippy::too_many_arguments)]
     pub fn token_mint_to<'a>(
-        program_id: &Pubkey,
+        stake_pool: &Pubkey,
         token_program: AccountInfo<'a>,
         mint: AccountInfo<'a>,
         destination: AccountInfo<'a>,
@@ -267,7 +303,7 @@ impl Processor {
         bump_seed: u8,
         amount: u64,
     ) -> Result<(), ProgramError> {
-        let me_bytes = program_id.to_bytes();
+        let me_bytes = stake_pool.to_bytes();
         let authority_signature_seeds = [&me_bytes[..32], authority_type, &[bump_seed]];
         let signers = &[&authority_signature_seeds[..]];
 
@@ -498,7 +534,7 @@ impl Processor {
         let stake_account_info = next_account_info(account_info_iter)?;
         // User account to receive pool tokens
         let dest_user_info = next_account_info(account_info_iter)?;
-        // Pool token mint account
+        // Pool token m int account
         let pool_mint_info = next_account_info(account_info_iter)?;
         // Clock sysvar account
         let clock_info = next_account_info(account_info_iter)?;
@@ -583,6 +619,9 @@ impl Processor {
         let token_amount = stake_pool_data
             .calc_pool_deposit_amount(stake_lamports)
             .ok_or(StakePoolError::CalculationFailure)?;
+
+        msg!("--- before mint to");
+        
         Self::token_mint_to(
             stake_pool_info.key,
             token_program_info.clone(),
@@ -593,6 +632,8 @@ impl Processor {
             stake_pool_data.withdraw_bump_seed,
             token_amount,
         )?;
+
+        msg!("--- after mint to");
 
         // Check if stake is warmed up
         Self::check_stake_activation(stake_account_info, clock, stake_history)?;
@@ -610,6 +651,8 @@ impl Processor {
         // Only update stake total if the last state update epoch is current
         stake_pool_data.stake_total += stake_lamports;
         stake_pool_data.serialize(&mut stake_pool_info.data.borrow_mut())?;
+
+        msg!("--- end process_add_validator_stake_account");
 
         Ok(())
     }
@@ -948,17 +991,46 @@ impl Processor {
     // }
 
     /// Issue a spl_token `Transfer` instruction.
-    pub fn token_transfer<'a>(
-        owner: &Pubkey,
+    pub fn token_transfer_from_signer<'a>(
+//        owner: &Pubkey,
         token_program: AccountInfo<'a>,
         source: AccountInfo<'a>,
         destination: AccountInfo<'a>,
         authority: AccountInfo<'a>,
+        amount: u64) 
+        
+        -> Result<(), ProgramError> 
+
+    {
+
+        let ix = spl_token::instruction::transfer(
+            token_program.key,
+            source.key,
+            destination.key,
+            authority.key,
+            &[],
+            amount,
+        )?;
+        invoke(
+            &ix,
+            &[source, destination, authority, token_program]
+        )
+    }
+
+    /// Issue a spl_token `Transfer` instruction.
+    pub fn token_transfer<'a>(
+        //        owner: &Pubkey,
+        token_program: AccountInfo<'a>,
+        source: AccountInfo<'a>,
+        destination: AccountInfo<'a>,
+        authority: AccountInfo<'a>,
+        pda_base: &Pubkey,
+        authority_type: &[u8],
         nonce: u8,
         amount: u64,
     ) -> Result<(), ProgramError> {
-        let swap_bytes = owner.to_bytes();
-        let authority_signature_seeds = [&swap_bytes[..32], &[nonce]];
+        let pda_bytes = pda_base.to_bytes();
+        let authority_signature_seeds = [&pda_bytes[..32], authority_type, &[nonce]];
         let signers = &[&authority_signature_seeds[..]];
         let ix = spl_token::instruction::transfer(
             token_program.key,
@@ -975,7 +1047,7 @@ impl Processor {
         )
     }
 
-    /// Processes [AddLiquidity](enum.Instruction.html).
+            /// Processes [AddLiquidity](enum.Instruction.html).
     pub fn process_add_liquidity(
 
         program_id: &Pubkey,
@@ -984,7 +1056,8 @@ impl Processor {
 
     ) -> ProgramResult {
 
-        msg!("enter");
+        msg!("--------------------------------------------------");
+        msg!("enter, amount {}",wsol_amount);
 
         if wsol_amount == 0 {
             return Err(StakePoolError::ZeroAmount.into());
@@ -993,11 +1066,11 @@ impl Processor {
         let account_info_iter = &mut accounts.iter();
 
         // Stake pool account
-        let stake_pool_info = next_account_info(account_info_iter)?;
+        let liq_pool_state_account = next_account_info(account_info_iter)?;
 
         let token_program = next_account_info(account_info_iter)?;
         let metalp_token_mint_account = next_account_info(account_info_iter)?;
-        let metalp_mint_withdraw_authority = next_account_info(account_info_iter)?;
+        let metalp_mint_authority = next_account_info(account_info_iter)?;
 
         let user_wsol_source_account = next_account_info(account_info_iter)?;
         let user_transfer_authority_info = next_account_info(account_info_iter)?;
@@ -1006,11 +1079,11 @@ impl Processor {
         let user_metalp_account_destination = next_account_info(account_info_iter)?;
 
         // Get stake pool stake (and check if it is initialized)
-        msg!("stake_pool_info {:?}",stake_pool_info);
-        let stake_pool_data = StakePool::deserialize(&stake_pool_info.data.borrow())?;
-        if !stake_pool_data.is_initialized() {
-            return Err(StakePoolError::InvalidState.into());
-        }
+        // msg!("stake_pool_info {:?}",liq_pool_state_account);
+        // let stake_pool_data = StakePool::deserialize(&liq_pool_state_account.data.borrow())?;
+        // if !stake_pool_data.is_initialized() {
+        //     return Err(StakePoolError::InvalidState.into());
+        // }
 
         //get data from spl-token accounts
         //let source_account_info: spl_token::state::Account = Self::unpack_token_account(user_wsol_source_account, &program_id)?;
@@ -1026,33 +1099,42 @@ impl Processor {
         //     liq_pool_wsol_dest_account,
         // )?;
 
-        let metalp_mint_info = Self::unpack_mint(metalp_token_mint_account, &program_id)?;
+        //msg!("Self::unpack_mint {:?}",metalp_token_mint_account);
+        let metalp_mint_info = Self::unpack_mint(metalp_token_mint_account, &token_program.key)?;
         let metalp_supply = to_u128(metalp_mint_info.supply)?;
 
-        let our_wsol_token_info = Self::unpack_token_account(liq_pool_wsol_dest_account, &program_id)?;
-        let our_wsol_total = to_u128(our_wsol_token_info.amount)?;
+        //msg!("Self::unpack_token_account liq_pool_wsol_dest_account {:?}",liq_pool_wsol_dest_account);
+        let liq_pool_wsol_dest_account_info = Self::unpack_token_account(liq_pool_wsol_dest_account, &token_program.key)?;
+        msg!("liq_pool_wsol_dest_account_info {:?}",liq_pool_wsol_dest_account_info);
+        let our_wsol_total = to_u128(liq_pool_wsol_dest_account_info.amount)?;
+
+        //msg!("Self::unpack_token_account user_wsol_source_account {:?}",user_wsol_source_account);
+        let user_wsol_source_account_info = Self::unpack_token_account(user_wsol_source_account, &token_program.key)?;
+        msg!("user_wsol_source_account_info {:?}",user_wsol_source_account_info);
+        msg!("user_transfer_authority_info {:?}",user_transfer_authority_info);
+       
+        let user_wsol_source_account_total = to_u128(user_wsol_source_account_info.amount)?;
 
         //transfer user wsol to our wsol account
-        Self::token_transfer(
-            user_transfer_authority_info.key,
+        msg!("before token_transfer_from_signer");
+        Self::token_transfer_from_signer(
             token_program.clone(),
             user_wsol_source_account.clone(),
             liq_pool_wsol_dest_account.clone(),
             user_transfer_authority_info.clone(),
-            0,
             wsol_amount,
         )?;
 
         // Calculate metalp amount and mint metalp tokens for the user
         let metalp_amount = shares_from_value(wsol_amount, our_wsol_total, metalp_supply).ok_or(StakePoolError::CalculationFailure)?;
-        Self::token_mint_to(
-            &program_id,
+        msg!("before token_mint_to");
+        Self::lucio_token_mint_to(
+            liq_pool_state_account.key,
             token_program.clone(),
             metalp_token_mint_account.clone(),
             user_metalp_account_destination.clone(),
-            metalp_mint_withdraw_authority.clone(),
+            metalp_mint_authority.clone(),
             Self::AUTHORITY_WITHDRAW,
-            0,
             metalp_amount,
         )?;
 
@@ -1110,6 +1192,8 @@ impl Processor {
         //     liq_pool_wsol_source_account,
         // )?;
 
+        let user_stsol_source_account_info = Self::unpack_token_account(user_stsol_source_account, &token_program.key)?;
+
         //get how much wSOL there's in the pool
         let our_wsol_token_info = Self::unpack_token_account(liq_pool_wsol_source_account, &program_id)?;
         let our_wsol_total = our_wsol_token_info.amount;
@@ -1122,13 +1206,11 @@ impl Processor {
         //let stsol_supply = to_u128(stsol_mint_info.supply)?;
 
         //transfer user's stSOL to our LP stSOL account
-        Self::token_transfer(
-            user_stsol_transfer_authority_info.key,
+        Self::token_transfer_from_signer(
             token_program.clone(),
             user_stsol_source_account.clone(),
             liq_pool_stsol_dest_account.clone(),
             user_stsol_transfer_authority_info.clone(),
-            0,
             stsol_amount,
         )?;
 
@@ -1140,12 +1222,13 @@ impl Processor {
         let wsol_amount = sol_value - fee_amount;
         // transfer equivalent wSOL minus fee to user
         Self::token_transfer(
-            liq_pool_wsol_transfer_authority_info.key,
             token_program.clone(),
             liq_pool_wsol_source_account.clone(),
             user_wsol_account_destination.clone(),
             liq_pool_wsol_transfer_authority_info.clone(),
-            0,
+            stake_pool_info.key,
+            Self::AUTHORITY_WITHDRAW,
+            stake_pool_data.withdraw_bump_seed,
             wsol_amount,
         )?;
 
@@ -1573,7 +1656,9 @@ impl Processor {
     
     /// Processes [Instruction](enum.Instruction.html).
     pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], input: &[u8]) -> ProgramResult {
+        msg!("-----enter process");
         let instruction = StakePoolInstruction::deserialize(input)?;
+        msg!("-----process instruction={:?}",instruction);
         match instruction {
             StakePoolInstruction::Initialize(init) => {
                 msg!("Instruction: Init");
@@ -1658,7 +1743,7 @@ impl PrintProgramError for StakePoolError {
             StakePoolError::IncorrectTokenProgramId=> msg!("Error: IncorrectTokenProgramId"),
             StakePoolError::ExpectedMint=> msg!("Error: Expected a Mint Account"),
             StakePoolError::ExpectedAccount=> msg!("Error: Expected an Account"),
-            StakePoolError::ZeroAmount=> msg!("Error: Amount must greater than zero"),
+            StakePoolError::ZeroAmount=> msg!("Error: Amount must be greater than zero"),
             StakePoolError::ConversionFailure=> msg!("Error: Data Conversion Failure"),
             StakePoolError::NotEnoughTokensInThePool=> msg!("Error: Not Enough Tokens In The Pool"),
         }
