@@ -514,7 +514,7 @@ impl StakePoolAccounts {
         // );
         println!("id {}",&id());
         println!("&liq_pool_state_acc.pubkey().to_bytes()[..32] {:?}",&liq_pool_state_acc.pubkey().to_bytes()[..32]);
-        let liq_pool_authority = Pubkey::create_program_address(&[&liq_pool_state_acc.pubkey().to_bytes()[..32] ,b"authority",b"0"], &id()).unwrap();
+        let (liq_pool_authority,_) = Pubkey::find_program_address(&[&liq_pool_state_acc.pubkey().to_bytes()[..32] ,b"authority"], &id());
         //println!("liq_pool_authority {} bump {}",liq_pool_authority,bump);
         println!("liq_pool_authority {}",liq_pool_authority);
 

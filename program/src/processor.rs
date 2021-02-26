@@ -258,17 +258,19 @@ impl Processor {
     /// Issue a spl_token `MintTo` instruction.
     #[allow(clippy::too_many_arguments)]
     pub fn lucio_token_mint_to<'a>(
+        program_id: &Pubkey,
         liq_pool_account: &Pubkey,
         token_program: AccountInfo<'a>,
         mint: AccountInfo<'a>,
         destination: AccountInfo<'a>,
         authority: AccountInfo<'a>,
-        authority_seed1: &[u8],
         amount: u64,
     ) -> Result<(), ProgramError> {
 
-        msg!("&liq_pool_account.to_bytes()[..32] {:?}", &liq_pool_account.to_bytes()[..32]);
-        let signer_seeds: &[&[_]] =&[&liq_pool_account.to_bytes()[..32] ,b"authority",b"0"];
+        //msg!("&liq_pool_account.to_bytes()[..32] {:?}", &liq_pool_account.to_bytes()[..32]);
+        //perform the same computation used when calculating liq_pool_authority to obtain the same bump
+        let (liq_pool_authority,bump) = Pubkey::find_program_address(&[&liq_pool_account.to_bytes()[..32][..32] ,b"authority"], &program_id);
+        let signer_seeds: &[&[_]] =&[&liq_pool_account.to_bytes()[..32] ,b"authority",&[bump]];
 
         //pub fn mint_to( 
         // token_program_id: &Pubkey, 
@@ -1129,12 +1131,12 @@ impl Processor {
         let metalp_amount = shares_from_value(wsol_amount, our_wsol_total, metalp_supply).ok_or(StakePoolError::CalculationFailure)?;
         msg!("before token_mint_to");
         Self::lucio_token_mint_to(
+            program_id,
             liq_pool_state_account.key,
             token_program.clone(),
             metalp_token_mint_account.clone(),
             user_metalp_account_destination.clone(),
             metalp_mint_authority.clone(),
-            Self::AUTHORITY_WITHDRAW,
             metalp_amount,
         )?;
 
