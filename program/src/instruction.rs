@@ -138,6 +138,25 @@ pub enum StakePoolInstruction {
     ///   userdata: amount to withdraw
     Withdraw(u64),
 
+    ///   Admin: Update the staking pubkey for a stake
+    ///
+    ///   0. `[w]` StakePool
+    ///   1. `[s]` Owner
+    ///   2. `[]` withdraw authority
+    ///   3. `[w]` Stake to update the staking pubkey
+    ///   4. '[]` Staking pubkey.
+    ///   5. '[]' Sysvar clock account (reserved for future use)
+    ///   6. `[]` Stake program id,
+    SetStakingAuthority,
+
+    ///   Admin: Update owner
+    ///
+    ///   0. `[w]` StakePool
+    ///   1. `[s]` Owner
+    ///   2. '[]` New owner pubkey
+    ///   3. '[]` New owner fee account
+    SetOwner,
+
     ///   Liq.Provider: Deposit some wSOL into the stSOL->wSOL LP. The output is a "LP" token representing LP shares
     ///
     ///   Deposit wsol into the LP. The output is a "metalp" token
@@ -167,26 +186,6 @@ pub enum StakePoolInstruction {
     ///   6. `[w]` Unitialized account to receive wSOL
     ///   userdata: amount to sell
     SellstSOL(u64),
-
-
-    ///   Admin: Update the staking pubkey for a stake
-    ///
-    ///   0. `[w]` StakePool
-    ///   1. `[s]` Owner
-    ///   2. `[]` withdraw authority
-    ///   3. `[w]` Stake to update the staking pubkey
-    ///   4. '[]` Staking pubkey.
-    ///   5. '[]' Sysvar clock account (reserved for future use)
-    ///   6. `[]` Stake program id,
-    SetStakingAuthority,
-
-    ///   Admin: Update owner
-    ///
-    ///   0. `[w]` StakePool
-    ///   1. `[s]` Owner
-    ///   2. '[]` New owner pubkey
-    ///   3. '[]` New owner fee account
-    SetOwner,
 }
 
 impl StakePoolInstruction {
@@ -213,6 +212,14 @@ impl StakePoolInstruction {
             }
             8 => Self::SetStakingAuthority,
             9 => Self::SetOwner,
+            10 => {
+                let val: &u64 = unpack(input)?;
+                Self::AddLiquidity(*val)
+            }
+            11 => {
+                let val: &u64 = unpack(input)?;
+                Self::SellstSOL(*val)
+            }
             _ => return Err(ProgramError::InvalidAccountData),
         })
     }
@@ -490,11 +497,11 @@ pub fn deposit(
     })
 }
 
-///create instruciton add_liquidity
+///create instruction add_liquidity
 pub fn instruction_add_liquidity(
     amount:u64,
     program_id: &Pubkey,
-    stake_pool_state_account: &Pubkey,
+    liq_pool_state_account: &Pubkey,
     spl_token_program_id: &Pubkey,
     meta_lp_mint_account: &Pubkey,
     meta_lp_mint_authority: &Pubkey,
@@ -508,7 +515,7 @@ pub fn instruction_add_liquidity(
     let args = StakePoolInstruction::AddLiquidity(amount);
     let data = args.serialize()?;
     let accounts = vec![
-        AccountMeta::new_readonly(*stake_pool_state_account, false),
+        AccountMeta::new_readonly(*liq_pool_state_account, false),
         AccountMeta::new_readonly(*spl_token_program_id, false),
         AccountMeta::new(*meta_lp_mint_account, false),
         AccountMeta::new_readonly(*meta_lp_mint_authority, false),

@@ -1,0 +1,225 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'spl-stake-pool'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=spl-stake-pool"
+                ],
+                "filter": {
+                    "name": "spl-stake-pool",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'liquidity'",
+            "program": "./target/debug/deps/liquidity-0f84cf721c1f99bb",
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'update_pool_balance'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=update_pool_balance",
+                    "--package=spl-stake-pool"
+                ],
+                "filter": {
+                    "name": "update_pool_balance",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'set_staking_authority'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=set_staking_authority",
+                    "--package=spl-stake-pool"
+                ],
+                "filter": {
+                    "name": "set_staking_authority",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'set_owner'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=set_owner",
+                    "--package=spl-stake-pool"
+                ],
+                "filter": {
+                    "name": "set_owner",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'vsa_remove'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=vsa_remove",
+                    "--package=spl-stake-pool"
+                ],
+                "filter": {
+                    "name": "vsa_remove",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'vsa_create'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=vsa_create",
+                    "--package=spl-stake-pool"
+                ],
+                "filter": {
+                    "name": "vsa_create",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'liquidity'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=liquidity",
+                    "--package=spl-stake-pool"
+                ],
+                "filter": {
+                    "name": "liquidity",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'withdraw'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=withdraw",
+                    "--package=spl-stake-pool"
+                ],
+                "filter": {
+                    "name": "withdraw",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'deposit'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=deposit",
+                    "--package=spl-stake-pool"
+                ],
+                "filter": {
+                    "name": "deposit",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'initialize'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=initialize",
+                    "--package=spl-stake-pool"
+                ],
+                "filter": {
+                    "name": "initialize",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'update_list_balance'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=update_list_balance",
+                    "--package=spl-stake-pool"
+                ],
+                "filter": {
+                    "name": "update_list_balance",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
