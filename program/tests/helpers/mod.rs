@@ -839,7 +839,7 @@ pub struct DepositInfo {
 
 pub async fn simple_deposit(
     banks_client: &mut BanksClient,
-    payer: &Keypair,
+    payer: &Keypair, payer_is_user: bool,
     recent_blockhash: &Hash,
     stake_pool_accounts: &StakePoolAccounts,
     validator_stake_account: &ValidatorStakeAccount,
@@ -863,13 +863,14 @@ pub async fn simple_deposit(
     .await;
     // make pool token account
     let user_pool_account = Keypair::new();
+    let owner = &if payer_is_user {payer.pubkey()} else {user.pubkey()};
     create_token_account(
         banks_client,
         payer,
         recent_blockhash,
         &user_pool_account,
         &stake_pool_accounts.pool_mint.pubkey(),
-        &payer.pubkey(),
+        owner,
     )
     .await
     .unwrap();

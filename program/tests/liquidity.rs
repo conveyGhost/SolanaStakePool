@@ -198,7 +198,7 @@ async fn test_sell_st_sol() {
     let deposit_info: DepositInfo = simple_deposit(//banks_client: &mut BanksClient, payer: &Keypair, recent_blockhash: &Hash, 
         //stake_pool_accounts: &StakePoolAccounts, validator_stake_account: &ValidatorStakeAccount,
         &mut banks_client,
-        &payer,
+        &payer, true,
         &recent_blockhash,
         &stake_pool_accounts,
         &validator_stake_account

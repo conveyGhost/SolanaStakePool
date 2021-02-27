@@ -43,7 +43,7 @@ async fn setup() -> (
 
     let deposit_info: DepositInfo = simple_deposit(
         &mut banks_client,
-        &payer,
+        &payer,false,
         &recent_blockhash,
         &stake_pool_accounts,
         &validator_stake_account,
@@ -685,7 +685,7 @@ async fn test_stake_pool_withdraw_token_delegate_was_not_setup() {
 
     let deposit_info: DepositInfo = simple_deposit(
         &mut banks_client,
-        &payer,
+        &payer, false,
         &recent_blockhash,
         &stake_pool_accounts,
         &validator_stake_account,
@@ -753,7 +753,7 @@ async fn test_stake_pool_withdraw_with_low_delegation() {
 
     let deposit_info: DepositInfo = simple_deposit(
         &mut banks_client,
-        &payer,
+        &payer,false,
         &recent_blockhash,
         &stake_pool_accounts,
         &validator_stake_account,
