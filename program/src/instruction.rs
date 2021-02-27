@@ -177,13 +177,15 @@ pub enum StakePoolInstruction {
     ///   How: move wSOL from LP to user acc (4.Unitialized account to receive withdrawal) and assigns authority to (5. `[]` User account to set as a new withdraw authority)
     ///   Basic asserts: amount withdrawn <= wSOL in the pool
     ///
-    ///   0. `[]` Stake Pool (meta Stake pool program instance state)
-    ///   1. `[]` SPL Token Program
-    ///   2. `[w]` stSOL token mint account
-    ///   3. `[]` stSOL burn/mint/withdraw authority
-    ///   4. `[w]` User account with stSOL to transfer from
-    ///   5. `[]` withdraw authority to remove stSOL from user account
-    ///   6. `[w]` Unitialized account to receive wSOL
+    ///   0. `[]` Stake Pool (Stake pool state)
+    ///   1. `[]` Liq Pool (Liq pool state)
+    ///   2. `[]` SPL Token Program
+    ///   3. `[w]` liq pool wSOL account
+    ///   4. `[w]` liq pool stSOL account
+    ///   5. `[]` liq pool authority
+    ///   6. `[w]` User wSOL account (unitialized, to receive)
+    ///   7. `[w]` User stSOL account (to take tokens from)
+    ///   8. `[]` User authority (signer)
     ///   userdata: amount to sell
     SellstSOL(u64),
 }
@@ -272,7 +274,7 @@ impl StakePoolInstruction {
                 *value = *val;
             }
             Self::SellstSOL(val) => {
-                output[0] = 10;
+                output[0] = 11;
                 #[allow(clippy::cast_ptr_alignment)]
                 let value = unsafe { &mut *(&mut output[1] as *mut u8 as *mut u64) };
                 *value = *val;
@@ -523,6 +525,42 @@ pub fn instruction_add_liquidity(
         AccountMeta::new_readonly(*user_wsol_withdraw_auth, false),
         AccountMeta::new(*liq_pool_wsol_dest_account, false),
         AccountMeta::new(*user_dest_meta_lp_account, false),
+    ];
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
+    })
+}
+
+///create instruction sell_st_sol
+pub fn instruction_sell_stsol(
+    amount:u64,
+    program_id: &Pubkey,
+    stake_pool_state_account: &Pubkey,
+    liq_pool_state_account: &Pubkey,
+    spl_token_program_id: &Pubkey,
+    liq_pool_wsol_account: &Pubkey,
+    liq_pool_st_sol_account: &Pubkey,
+    liq_pool_authority: &Pubkey,
+    user_wsol_account: &Pubkey,
+    user_st_sol_account: &Pubkey,
+    user_withdraw_auth: &Pubkey,
+
+) -> Result<Instruction, ProgramError> {
+
+    let args = StakePoolInstruction::SellstSOL(amount);
+    let data = args.serialize()?;
+    let accounts = vec![
+        AccountMeta::new_readonly(*stake_pool_state_account, false),
+        AccountMeta::new_readonly(*liq_pool_state_account, false),
+        AccountMeta::new_readonly(*spl_token_program_id, false),
+        AccountMeta::new(*liq_pool_wsol_account, false),
+        AccountMeta::new(*liq_pool_st_sol_account, false),
+        AccountMeta::new_readonly(*liq_pool_authority, false),
+        AccountMeta::new(*user_wsol_account, false),
+        AccountMeta::new(*user_st_sol_account, false),
+        AccountMeta::new_readonly(*user_withdraw_auth, false),
     ];
     Ok(Instruction {
         program_id: *program_id,

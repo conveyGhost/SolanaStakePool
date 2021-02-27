@@ -127,10 +127,10 @@ async fn test_stake_pool_deposit() {
     .unwrap();
 
     // Save stake pool state before depositing
-    let stake_pool_before =
+    let stake_pool_account =
         get_account(&mut banks_client, &stake_pool_accounts.stake_pool.pubkey()).await;
     let stake_pool_before =
-        state::StakePool::deserialize(&stake_pool_before.data.as_slice()).unwrap();
+        state::StakePool::deserialize(&stake_pool_account.data.as_slice()).unwrap();
 
     // Save validator stake account record before depositing
     let validator_stake_list = get_account(

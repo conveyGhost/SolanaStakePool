@@ -2,6 +2,10 @@
 
 //! A program for managing a meta-staking-pool with a liquidity-pool to allow immediate unstaking
 
+/// wSOL mint account
+pub const W_SOL_1111111_MINT_ACCOUNT:&str="So11111111111111111111111111111111111111112";
+
+
 //---------------------
 //Values for TESTNET
 //---------------------

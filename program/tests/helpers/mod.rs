@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-pub const W_SOL_1111111_MINT_ACCOUNT:&str="So11111111111111111111111111111111111111112";
-
 const META_LP_MINT_ACCOUNT:&str="4XMfT5tKJzXXzaw1u5VSUec5av6NBPAbiULnUpQ76YGX"; 
 /// authority/owner for token accounts: LIQ_POOL_WSOL_ACCOUNT & LIQ_POOL_STSOL_ACCOUNT
 const LIQ_POOL_ACCOUNT:&str="rxTBFFRfwcgx5YedbwLcKntCwMs9tJoQvzYmRnbpLKS"; 
@@ -110,7 +108,7 @@ pub async fn create_token_account(
             system_instruction::create_account(
                 &payer.pubkey(),
                 &account.pubkey(),
-                10+account_rent,
+                100_000+account_rent,
                 spl_token::state::Account::LEN as u64,
                 &spl_token::id(),
             ),
@@ -128,6 +126,39 @@ pub async fn create_token_account(
     banks_client.process_transaction(transaction).await?;
     Ok(())
 }
+
+// CANT BE DONE HERE because mint AUTH is a PDA. Has to be done from the program
+// pub async fn mint_token_to(
+//     banks_client: &mut BanksClient,
+//     payer: &Keypair,
+//     recent_blockhash: &Hash,
+//     account: &Keypair,
+//     amount: u64,
+//     pool_mint: &Pubkey,
+//     owner: &Pubkey,
+
+// ) -> Result<(), TransportError> {
+
+//     println!("---about to mint_to {}",amount);
+//     let mut transaction = Transaction::new_with_payer(
+//         &[
+//             spl_token::instruction::mint_to( //token_program_id: &Pubkey, mint_pubkey: &Pubkey, account_pubkey: &Pubkey, owner_pubkey: &Pubkey, signer_pubkeys: &[&Pubkey], amount: u64)(
+//                 &spl_token::id(),
+//                 pool_mint,
+//                 &account.pubkey(),
+//                 owner,
+//                 &[],
+//                 amount
+//             )
+//             .unwrap(),
+//         ],
+//         Some(&payer.pubkey()),
+//     );
+//     transaction.sign(&[payer, account], *recent_blockhash);
+//     banks_client.process_transaction(transaction).await?;
+//     println!("---after to mint_to {}",amount)
+//     Ok(())
+// }
 
 pub async fn get_token_balance(banks_client: &mut BanksClient, token: &Pubkey) -> u64 {
     let token_account = banks_client
@@ -838,7 +869,7 @@ pub async fn simple_deposit(
         recent_blockhash,
         &user_pool_account,
         &stake_pool_accounts.pool_mint.pubkey(),
-        &user.pubkey(),
+        &payer.pubkey(),
     )
     .await
     .unwrap();
@@ -875,7 +906,7 @@ pub async fn prepare_wsol_deposit(
 
     println!("-- enter prepare_wsol_deposit");
     let user = Keypair::new();
-    // make pool token account
+    // make wsol token account
     let user_wsol_account = Keypair::new();
     create_token_account(
         banks_client,
@@ -898,5 +929,40 @@ pub async fn prepare_wsol_deposit(
         user_pool_account:user_wsol_account,
         stake_lamports:0,
         pool_tokens: wsol_tokens,
+    }
+}
+
+
+pub async fn prepare_st_sol_deposit(
+    banks_client: &mut BanksClient,
+    st_sol_token_mint: &Pubkey,
+    payer: &Keypair,
+    recent_blockhash: &Hash,
+
+) -> DepositInfo {
+
+    println!("-- enter prepare_st_sol_deposit");
+    let user = Keypair::new();
+    // make wsol token account
+    let user_st_sol_account = Keypair::new();
+    create_token_account(
+        banks_client,
+        payer,
+        recent_blockhash,
+        &user_st_sol_account,
+        &st_sol_token_mint,
+        &payer.pubkey(),
+    )
+    .await
+    .unwrap();
+
+    let st_sol_tokens = get_token_balance(banks_client, &user_st_sol_account.pubkey()).await;
+    println!("-- exit prepare_st_sol_deposit {}",st_sol_tokens);
+
+    return DepositInfo {
+        user,
+        user_pool_account:user_st_sol_account.pubkey(),
+        stake_lamports:0,
+        pool_tokens: st_sol_tokens,
     }
 }

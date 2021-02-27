@@ -257,7 +257,7 @@ impl Processor {
 
     /// Issue a spl_token `MintTo` instruction.
     #[allow(clippy::too_many_arguments)]
-    pub fn lucio_token_mint_to<'a>(
+    pub fn liq_pool_token_mint_to<'a>(
         program_id: &Pubkey,
         liq_pool_account: &Pubkey,
         token_program: AccountInfo<'a>,
@@ -623,7 +623,6 @@ impl Processor {
             .ok_or(StakePoolError::CalculationFailure)?;
 
         msg!("--- before mint to");
-        
         Self::token_mint_to(
             stake_pool_info.key,
             token_program_info.clone(),
@@ -634,7 +633,6 @@ impl Processor {
             stake_pool_data.withdraw_bump_seed,
             token_amount,
         )?;
-
         msg!("--- after mint to");
 
         // Check if stake is warmed up
@@ -1049,7 +1047,8 @@ impl Processor {
         )
     }
 
-            /// Processes [AddLiquidity](enum.Instruction.html).
+
+    /// Processes [AddLiquidity](enum.Instruction.html).
     pub fn process_add_liquidity(
 
         program_id: &Pubkey,
@@ -1130,7 +1129,7 @@ impl Processor {
         // Calculate metalp amount and mint metalp tokens for the user
         let metalp_amount = shares_from_value(wsol_amount, our_wsol_total, metalp_supply).ok_or(StakePoolError::CalculationFailure)?;
         msg!("before token_mint_to");
-        Self::lucio_token_mint_to(
+        Self::liq_pool_token_mint_to(
             program_id,
             liq_pool_state_account.key,
             token_program.clone(),
@@ -1157,22 +1156,24 @@ impl Processor {
             return Err(StakePoolError::ZeroAmount.into());
         }
 
+        msg!("--- sell_stsol {}",stsol_amount);
+
         let account_info_iter = &mut accounts.iter();
 
         // Stake pool account
         let stake_pool_info = next_account_info(account_info_iter)?;
-
+        // Liq pool account
+        let liq_pool_account = next_account_info(account_info_iter)?;
+        // SPL token program
         let token_program = next_account_info(account_info_iter)?;
-        //let stsol_token_mint_account = next_account_info(account_info_iter)?;
 
-        let user_stsol_source_account = next_account_info(account_info_iter)?;
-        let user_stsol_transfer_authority_info = next_account_info(account_info_iter)?;
-        let liq_pool_stsol_dest_account = next_account_info(account_info_iter)?;
+        let liq_pool_wsol_account = next_account_info(account_info_iter)?;
+        let liq_pool_stsol_account = next_account_info(account_info_iter)?;
+        let liq_pool_authority = next_account_info(account_info_iter)?;
 
-        let liq_pool_wsol_source_account = next_account_info(account_info_iter)?;
-        let user_wsol_account_destination = next_account_info(account_info_iter)?;
-
-        let liq_pool_wsol_transfer_authority_info = next_account_info(account_info_iter)?;
+        let user_wsol_account = next_account_info(account_info_iter)?;
+        let user_stsol_account = next_account_info(account_info_iter)?;
+        let user_authority = next_account_info(account_info_iter)?;
 
         // Get stake pool stake (and check if it is initialized)
         let stake_pool_data = StakePool::deserialize(&stake_pool_info.data.borrow())?;
@@ -1194,15 +1195,20 @@ impl Processor {
         //     liq_pool_wsol_source_account,
         // )?;
 
-        let user_stsol_source_account_info = Self::unpack_token_account(user_stsol_source_account, &token_program.key)?;
+        //let user_stsol_source_account_info = Self::unpack_token_account(user_stsol_account, &token_program.key)?;
 
         //get how much wSOL there's in the pool
-        let our_wsol_token_info = Self::unpack_token_account(liq_pool_wsol_source_account, &program_id)?;
+        let our_wsol_token_info = Self::unpack_token_account(liq_pool_wsol_account, &token_program.key)?;
         let our_wsol_total = our_wsol_token_info.amount;
+        msg!("our_wsol_total {}",our_wsol_total);
         // is it enough?
         if stsol_amount > our_wsol_total {
             return Err(StakePoolError::NotEnoughTokensInThePool.into());
         }
+
+        let user_st_sol_token_info = Self::unpack_token_account(user_stsol_account, &token_program.key)?;
+        let user_st_sol_total = user_st_sol_token_info.amount;
+        msg!("user_st_sol_total {}",user_st_sol_total);
 
         //let stsol_mint_info = Self::unpack_mint(stsol_token_mint_account, &program_id)?;
         //let stsol_supply = to_u128(stsol_mint_info.supply)?;
@@ -1210,9 +1216,9 @@ impl Processor {
         //transfer user's stSOL to our LP stSOL account
         Self::token_transfer_from_signer(
             token_program.clone(),
-            user_stsol_source_account.clone(),
-            liq_pool_stsol_dest_account.clone(),
-            user_stsol_transfer_authority_info.clone(),
+            user_stsol_account.clone(),
+            liq_pool_stsol_account.clone(),
+            user_authority.clone(),
             stsol_amount,
         )?;
 
@@ -1221,17 +1227,25 @@ impl Processor {
         let sol_value = proportional(stsol_amount, stake_pool_data.stake_total as u128, total_stsol_minted as u128).ok_or(StakePoolError::CalculationFailure)?;
         // Calculate fee & transfer equivalent wSOL minus fee to user
         let fee_amount = proportional(sol_value, stake_pool_data.fee.numerator as u128, stake_pool_data.fee.denominator as u128).ok_or(StakePoolError::CalculationFailure)?;
-        let wsol_amount = sol_value - fee_amount;
+        let wsol_amount_to_user = sol_value - fee_amount;
+        msg!("stSol {} sol_value {} fee {}",stsol_amount,sol_value,fee_amount);
+        msg!("Fee:{}/{}",stake_pool_data.fee.numerator, stake_pool_data.fee.denominator);
+
+        //perform the same computation used when calculating liq_pool_authority to obtain the same bump
+        let (computed_liq_pool_authority,bump) = Pubkey::find_program_address(&[&liq_pool_account.key.to_bytes()[..32] ,b"authority"], &program_id);
+        //let signer_seeds: &[&[_]] =&[&liq_pool_account.key.to_bytes()[..32] ,b"authority",&[bump]];
+
         // transfer equivalent wSOL minus fee to user
+        msg!("transfer equivalent wSOL minus fee to user {}",wsol_amount_to_user);
         Self::token_transfer(
             token_program.clone(),
-            liq_pool_wsol_source_account.clone(),
-            user_wsol_account_destination.clone(),
-            liq_pool_wsol_transfer_authority_info.clone(),
-            stake_pool_info.key,
-            Self::AUTHORITY_WITHDRAW,
-            stake_pool_data.withdraw_bump_seed,
-            wsol_amount,
+            liq_pool_wsol_account.clone(),
+            user_wsol_account.clone(),
+            liq_pool_authority.clone(),
+            liq_pool_account.key,
+            b"authority",
+            bump,
+            wsol_amount_to_user,
         )?;
 
         //TODO
@@ -1768,7 +1782,7 @@ fn shares_from_value(value: u64, total_value:u128, total_shares:u128) -> Option<
 /// as value  = shares * share_price where share_price=total_value/total_shares
 /// or shares = amount_value / share_price where share_price=total_value/total_shares 
 ///     => shares = amount_value * 1/share_price where 1/share_price=total_shares/total_value
-fn proportional(amount: u64, numerator:u128, denominator:u128) -> Option<u64> {
+pub fn proportional(amount: u64, numerator:u128, denominator:u128) -> Option<u64> {
     if denominator == 0 { return Some(amount); }
     u64::try_from(
         (amount as u128)
