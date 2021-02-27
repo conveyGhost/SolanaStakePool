@@ -1123,11 +1123,11 @@ impl Processor {
         msg!("liq_pool_wsol_dest_account {} {} {:?}",liq_pool_wsol_account.key, liq_pool_wsol_account_info.amount, liq_pool_wsol_account_info);
         let our_wsol_total = to_u128(liq_pool_wsol_account_info.amount)?;
 
-        //msg!("Self::unpack_token_account user_wsol_source_account {:?}",user_wsol_source_account);
-        let user_wsol_source_account_info = Self::unpack_token_account(user_wsol_source_account, &token_program.key)?;
-        msg!("user_wsol_source_account {} {} {:?}",user_wsol_source_account.key, user_wsol_source_account_info.amount, user_wsol_source_account_info);
+        let user_account_info = Self::unpack_token_account(user_wsol_source_account, &token_program.key)?;
+        msg!("user_account_info {} {} {:?}",user_wsol_source_account.key, user_account_info.amount, user_account_info);
         msg!("user_transfer_authority {} {:?}",user_transfer_authority_info.key, user_transfer_authority_info);
-       
+
+        assert!(user_account_info.mint==liq_pool_wsol_account_info.mint,"user acc mint must be wSOL {}",liq_pool_wsol_account_info.mint);
         //let user_wsol_source_account_total = to_u128(user_wsol_source_account_info.amount)?;
 
         //transfer user wsol to our wsol account
@@ -1194,6 +1194,8 @@ impl Processor {
         if !stake_pool_data.is_initialized() {
             return Err(StakePoolError::InvalidState.into());
         }
+        msg!("stSOL mint {}",stake_pool_data.pool_mint);
+        let st_sol_mint = stake_pool_data.pool_mint;
 
         //get data from spl-token accounts
         //let source_account_info: spl_token::state::Account = Self::unpack_token_account(user_stsol_source_account, &program_id)?;
@@ -1220,9 +1222,22 @@ impl Processor {
             return Err(StakePoolError::NotEnoughTokensInThePool.into());
         }
 
+        let liq_pool_wsol_token_info = Self::unpack_token_account(liq_pool_wsol_account, &token_program.key)?;
+        let liq_pool_stsol_token_info = Self::unpack_token_account(liq_pool_stsol_account, &token_program.key)?;
+
         let user_st_sol_token_info = Self::unpack_token_account(user_stsol_account, &token_program.key)?;
         let user_st_sol_total = user_st_sol_token_info.amount;
+        msg!("user_st_sol_token_info.mint {} liq_pool_stsol_token_info.mint {}",user_st_sol_token_info.mint,liq_pool_stsol_token_info.mint);
         msg!("user_st_sol_total {}",user_st_sol_total);
+        //make sure user provided acc is stSOL
+        assert!(st_sol_mint==user_st_sol_token_info.mint,"user acc must be of stSOL mint {}",st_sol_mint);
+        assert!(user_st_sol_token_info.mint==liq_pool_stsol_token_info.mint);
+        
+        let user_wsol_token_info = Self::unpack_token_account(user_wsol_account, &token_program.key)?;
+        let user_wsol_total = user_wsol_token_info.amount;
+        assert!(user_wsol_token_info.mint==liq_pool_wsol_token_info.mint);
+        msg!("user_wsol_token_info.mint {} liq_pool_wsol_token_info.mint {}",user_wsol_token_info.mint,liq_pool_wsol_token_info.mint);
+        msg!("user_wsol__total {}",user_wsol_total);
 
         //let stsol_mint_info = Self::unpack_mint(stsol_token_mint_account, &program_id)?;
         //let stsol_supply = to_u128(stsol_mint_info.supply)?;
