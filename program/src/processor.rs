@@ -1,5 +1,8 @@
 //! Program state processor
 
+//const CHECK_STAKE_ACCOUNT_IS_ACTIVE:bool=false; //while testing we allow not-yet-activated stake accounts7
+// commented, Self::check_stake_activation is already disabled to facilitate tests
+
 use crate::{
     error::StakePoolError,
     instruction::{InitArgs, StakePoolInstruction},
@@ -16,6 +19,7 @@ use solana_program::{
     decode_error::DecodeError,
     entrypoint::ProgramResult,
     msg,
+    native_token::sol_to_lamports,
     program::{invoke, invoke_signed},
     program_error::PrintProgramError,
     program_error::ProgramError,
@@ -36,27 +40,33 @@ impl Processor {
     pub const AUTHORITY_DEPOSIT: &'static [u8] = b"deposit";
     /// Suffix for withdraw authority seed
     pub const AUTHORITY_WITHDRAW: &'static [u8] = b"withdraw";
+    /// Seed for general PDA authority
+    pub const AUTHORITY: &'static [u8] = b"authority";
+
     /// Calculates the authority id by generating a program address.
+    /// from a base_account_pubkey as seed and a bump
     pub fn authority_id(
         program_id: &Pubkey,
-        stake_pool: &Pubkey,
+        base_account_pubkey: &Pubkey,
         authority_type: &[u8],
         bump_seed: u8,
     ) -> Result<Pubkey, ProgramError> {
         Pubkey::create_program_address(
-            &[&stake_pool.to_bytes()[..32], authority_type, &[bump_seed]],
+            &[&base_account_pubkey.to_bytes()[..32], authority_type, &[bump_seed]],
             program_id,
         )
         .map_err(|_| StakePoolError::InvalidProgramAddress.into())
     }
-    /// Generates seed bump for stake pool authorities
+
+    /// Find seed bump for PDA
     pub fn find_authority_bump_seed(
         program_id: &Pubkey,
-        stake_pool: &Pubkey,
+        base_account_pubkey: &Pubkey,
         authority_type: &[u8],
     ) -> (Pubkey, u8) {
-        Pubkey::find_program_address(&[&stake_pool.to_bytes()[..32], authority_type], program_id)
+        Pubkey::find_program_address(&[&base_account_pubkey.to_bytes()[..32], authority_type], program_id)
     }
+
     /// Generates stake account address for the validator
     pub fn find_stake_address_for_validator(
         program_id: &Pubkey,
@@ -263,14 +273,14 @@ impl Processor {
         token_program: AccountInfo<'a>,
         mint: AccountInfo<'a>,
         destination: AccountInfo<'a>,
-        authority: AccountInfo<'a>,
+        liq_pool_authority: AccountInfo<'a>,
         amount: u64,
     ) -> Result<(), ProgramError> {
 
         //msg!("&liq_pool_account.to_bytes()[..32] {:?}", &liq_pool_account.to_bytes()[..32]);
         //perform the same computation used when calculating liq_pool_authority to obtain the same bump
-        let (liq_pool_authority,bump) = Pubkey::find_program_address(&[&liq_pool_account.to_bytes()[..32][..32] ,b"authority"], &program_id);
-        let signer_seeds: &[&[_]] =&[&liq_pool_account.to_bytes()[..32] ,b"authority",&[bump]];
+        let (_computed_liq_pool_authority,bump) = Self::find_authority_bump_seed(&program_id, &liq_pool_account, Self::AUTHORITY);
+        let signer_seeds: &[&[_]] =&[&liq_pool_account.to_bytes()[..32], Self::AUTHORITY,&[bump]]; 
 
         //pub fn mint_to( 
         // token_program_id: &Pubkey, 
@@ -283,13 +293,13 @@ impl Processor {
             token_program.key,
             mint.key,
             destination.key,
-            authority.key,
+            liq_pool_authority.key,
             &[],
             amount,
         )?;
 
         invoke_signed(&ix, 
-            &[mint, destination, authority, token_program], 
+            &[mint, destination, liq_pool_authority, token_program], 
             &[&signer_seeds])
     }
 
@@ -483,8 +493,9 @@ impl Processor {
             &[bump_seed],
         ];
 
-        // Fund the associated token account with the minimum balance to be rent exempt
-        let required_lamports = 1 + rent.minimum_balance(std::mem::size_of::<stake::StakeState>());
+        // Fund the stake account with 1 SOL + rent-exempt balance
+        let required_lamports =
+            sol_to_lamports(1.0) + rent.minimum_balance(std::mem::size_of::<stake::StakeState>());
 
         // Create new stake account
         invoke_signed(
@@ -568,6 +579,7 @@ impl Processor {
         stake_pool_data.check_owner(owner_info)?;
 
         // Check stake pool last update epoch
+        msg!("stake_pool_data.last_update_epoch {} vs. clock.epoch {}",stake_pool_data.last_update_epoch, clock.epoch);
         if stake_pool_data.last_update_epoch < clock.epoch {
             return Err(StakePoolError::StakeListAndPoolOutOfDate.into());
         }
@@ -870,8 +882,10 @@ impl Processor {
             return Err(StakePoolError::InvalidState.into());
         }
 
+        msg!("Validators {} check last_update_epoch",validator_stake_list.validators.len());
         let mut total_balance: u64 = 0;
         for validator_stake_record in validator_stake_list.validators {
+            msg!("validator_stake_record.last_update_epoch:{} clock.epoch:{}",validator_stake_record.last_update_epoch , clock.epoch);
             if validator_stake_record.last_update_epoch < clock.epoch {
                 return Err(StakePoolError::StakeListOutOfDate.into());
             }
@@ -1076,7 +1090,7 @@ impl Processor {
         let user_wsol_source_account = next_account_info(account_info_iter)?;
         let user_transfer_authority_info = next_account_info(account_info_iter)?;
 
-        let liq_pool_wsol_dest_account = next_account_info(account_info_iter)?;
+        let liq_pool_wsol_account = next_account_info(account_info_iter)?;
         let user_metalp_account_destination = next_account_info(account_info_iter)?;
 
         // Get stake pool stake (and check if it is initialized)
@@ -1105,23 +1119,23 @@ impl Processor {
         let metalp_supply = to_u128(metalp_mint_info.supply)?;
 
         //msg!("Self::unpack_token_account liq_pool_wsol_dest_account {:?}",liq_pool_wsol_dest_account);
-        let liq_pool_wsol_dest_account_info = Self::unpack_token_account(liq_pool_wsol_dest_account, &token_program.key)?;
-        msg!("liq_pool_wsol_dest_account_info {:?}",liq_pool_wsol_dest_account_info);
-        let our_wsol_total = to_u128(liq_pool_wsol_dest_account_info.amount)?;
+        let liq_pool_wsol_account_info = Self::unpack_token_account(liq_pool_wsol_account, &token_program.key)?;
+        msg!("liq_pool_wsol_dest_account {} {} {:?}",liq_pool_wsol_account.key, liq_pool_wsol_account_info.amount, liq_pool_wsol_account_info);
+        let our_wsol_total = to_u128(liq_pool_wsol_account_info.amount)?;
 
         //msg!("Self::unpack_token_account user_wsol_source_account {:?}",user_wsol_source_account);
         let user_wsol_source_account_info = Self::unpack_token_account(user_wsol_source_account, &token_program.key)?;
-        msg!("user_wsol_source_account_info {:?}",user_wsol_source_account_info);
-        msg!("user_transfer_authority_info {:?}",user_transfer_authority_info);
+        msg!("user_wsol_source_account {} {} {:?}",user_wsol_source_account.key, user_wsol_source_account_info.amount, user_wsol_source_account_info);
+        msg!("user_transfer_authority {} {:?}",user_transfer_authority_info.key, user_transfer_authority_info);
        
-        let user_wsol_source_account_total = to_u128(user_wsol_source_account_info.amount)?;
+        //let user_wsol_source_account_total = to_u128(user_wsol_source_account_info.amount)?;
 
         //transfer user wsol to our wsol account
         msg!("before token_transfer_from_signer");
         Self::token_transfer_from_signer(
             token_program.clone(),
             user_wsol_source_account.clone(),
-            liq_pool_wsol_dest_account.clone(),
+            liq_pool_wsol_account.clone(),
             user_transfer_authority_info.clone(),
             wsol_amount,
         )?;
@@ -1232,7 +1246,7 @@ impl Processor {
         msg!("Fee:{}/{}",stake_pool_data.fee.numerator, stake_pool_data.fee.denominator);
 
         //perform the same computation used when calculating liq_pool_authority to obtain the same bump
-        let (computed_liq_pool_authority,bump) = Pubkey::find_program_address(&[&liq_pool_account.key.to_bytes()[..32] ,b"authority"], &program_id);
+        let (_computed_liq_pool_authority,bump) = Pubkey::find_program_address(&[&liq_pool_account.key.to_bytes()[..32] ,Self::AUTHORITY], &program_id);
         //let signer_seeds: &[&[_]] =&[&liq_pool_account.key.to_bytes()[..32] ,b"authority",&[bump]];
 
         // transfer equivalent wSOL minus fee to user
@@ -1243,7 +1257,7 @@ impl Processor {
             user_wsol_account.clone(),
             liq_pool_authority.clone(),
             liq_pool_account.key,
-            b"authority",
+            Self::AUTHORITY,
             bump,
             wsol_amount_to_user,
         )?;
