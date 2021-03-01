@@ -725,7 +725,7 @@ where
 fn command_deposit(
     config: &Config,
     pool: &Pubkey,
-    stake: &Pubkey,
+    stake_account: &Pubkey,
     token_receiver: &Option<Pubkey>,
 ) -> CommandResult {
     // Get stake pool state
@@ -733,7 +733,7 @@ fn command_deposit(
     let pool_data: StakePool = StakePool::deserialize(pool_data.as_slice()).unwrap();
 
     // Get stake account data
-    let stake_data = config.rpc_client.get_account_data(&stake)?;
+    let stake_data = config.rpc_client.get_account_data(&stake_account)?;
     let stake_data: StakeState =
         deserialize(stake_data.as_slice()).or(Err("Invalid stake account data"))?;
     let validator: Pubkey = match stake_data {
@@ -784,8 +784,8 @@ fn command_deposit(
     )
     .unwrap();
 
-    let liq_pool_withdraw_authority: Pubkey = PoolProcessor::authority_id(
-        &config.st_sol_mint_account,
+    let withdraw_authority: Pubkey = PoolProcessor::authority_id(
+        &spl_stake_pool::id(),
         pool,
         PoolProcessor::AUTHORITY_WITHDRAW,
         pool_data.withdraw_bump_seed,
@@ -793,31 +793,31 @@ fn command_deposit(
     .unwrap();
 
     instructions.extend(vec![
-        // Set Withdrawer on stake account to Deposit authority of the stake pool
-        authorize_stake(
-            &stake,
-            &config.owner.pubkey(),
-            &pool_deposit_authority,
-            StakeAuthorize::Withdrawer,
-        ),
-        // Set Staker on stake account to Deposit authority of the stake pool
-        authorize_stake(
-            &stake,
-            &config.owner.pubkey(),
-            &pool_deposit_authority,
-            StakeAuthorize::Staker,
-        ),
+        // // Set Withdrawer on stake account to Deposit authority of the stake pool
+        // authorize_stake(
+        //     &stake_account,
+        //     &config.owner.pubkey(),
+        //     &pool_deposit_authority,
+        //     StakeAuthorize::Withdrawer,
+        // ),
+        // // Set Staker on stake account to Deposit authority of the stake pool
+        // authorize_stake(
+        //     &stake_account,
+        //     &config.owner.pubkey(),
+        //     &pool_deposit_authority,
+        //     StakeAuthorize::Staker,
+        // ),
         // Add stake account to the pool
         deposit(
             &spl_stake_pool::id(),
             &pool,
             &pool_data.validator_stake_list,
             &pool_deposit_authority,
-            &liq_pool_withdraw_authority,
-            &stake,
+            &withdraw_authority,
+            &stake_account,
             &validator_stake_account,
             &token_receiver,
-            &pool_data.owner_fee_account,
+            &token_receiver, //&pool_data.owner_fee_account,
             &pool_data.pool_mint,
             &spl_token::id(),
             &stake_program_id(),
@@ -978,16 +978,38 @@ fn command_list(config: &Config, stake_pool_state: &Pubkey) -> CommandResult {
     let stake_pool_data: StakePool = StakePool::deserialize(stake_pool_state_acc.as_slice()).unwrap();
     println!("{:?}",stake_pool_data);
 
+    println!("PDA_LIQ_POOL_authority {}",&config.pda_liq_pool_authority);
 
+    // Calculate Deposit and Withdraw stake pool authorities
+    let pool_deposit_authority: Pubkey = PoolProcessor::authority_id(
+        &spl_stake_pool::id(),
+        stake_pool_state,
+        PoolProcessor::AUTHORITY_DEPOSIT,
+        stake_pool_data.deposit_bump_seed,
+    )
+    .unwrap();
+    let pool_withdraw_authority: Pubkey = PoolProcessor::authority_id(
+        &spl_stake_pool::id(),
+        stake_pool_state,
+        PoolProcessor::AUTHORITY_WITHDRAW,
+        stake_pool_data.withdraw_bump_seed,
+    )
+    .unwrap();
+
+    println!("stake_pool_deposit_authority {}",pool_deposit_authority);
+    println!("stake_pool_withdraw_authority {}",pool_withdraw_authority);
+    println!("validator_stake_list {}",stake_pool_data.validator_stake_list);
+    
     let validator_stake_list_acc = config
         .rpc_client
         .get_account_data(&stake_pool_data.validator_stake_list)?;
     let validator_stake_list_data =
         ValidatorStakeList::deserialize(&validator_stake_list_acc.as_slice())?;
+    println!("----------------");
     println!("Validators ({})",validator_stake_list_data.validators.len());
     println!("----------------");
     for info in validator_stake_list_data.validators {
-        println!("Validator {}\tBalance:{}", info.validator_account, info.balance);
+        println!("Validator vote Acc {}\tBalance:{}", info.validator_account, info.balance);
     }
     
         
@@ -1005,18 +1027,21 @@ fn command_list(config: &Config, stake_pool_state: &Pubkey) -> CommandResult {
         return Err("No get_authority_accounts found.".to_string().into());
     }
 
+    println!("----------------");
+    println!("Accounts with authorithy = pool_withdraw_authority ({})",&pool_withdraw_authority);
+    println!("----------------");
     let mut total_balance: u64 = 0;
     for (pubkey, account) in accounts {
         let balance = account.lamports;
         total_balance += balance;
-        println!("{}\t{} SOL", pubkey, lamports_to_sol(balance));
+        println!("Stake Acc {}\t{} SOL", pubkey, lamports_to_sol(balance));
     }
     println!("Total: {} SOL", lamports_to_sol(total_balance));
 
     Ok(None)
 }
 
-fn command_update(config: &Config, pool: &Pubkey) -> CommandResult {
+fn command_update(config: &Config, pool: &Pubkey, force:bool) -> CommandResult {
     // Get stake pool state
     let pool_data = config.rpc_client.get_account_data(&pool)?;
     let pool_data: StakePool = StakePool::deserialize(pool_data.as_slice()).unwrap();
@@ -1037,7 +1062,7 @@ fn command_update(config: &Config, pool: &Pubkey) -> CommandResult {
         .validators
         .iter()
         .filter_map(|item| {
-            if item.last_update_epoch >= epoch_info.epoch {
+            if force==false && item.last_update_epoch >= epoch_info.epoch {
                 None
             } else {
                 Some(&item.validator_account)
@@ -1046,7 +1071,7 @@ fn command_update(config: &Config, pool: &Pubkey) -> CommandResult {
         .collect();
 
     let mut instructions: Vec<Instruction> = vec![];
-
+    println!("--- {} accounts_to_update", accounts_to_update.len());
     for chunk in accounts_to_update.chunks(MAX_ACCOUNTS_TO_UPDATE) {
         instructions.push(update_list_balance(
             &spl_stake_pool::id(),
@@ -1066,7 +1091,7 @@ fn command_update(config: &Config, pool: &Pubkey) -> CommandResult {
             pool,
             &pool_data.validator_stake_list,
         )?);
-
+        println!("-- sending {} instructions", &instructions.len());
         let mut transaction =
             Transaction::new_with_payer(&instructions, Some(&config.fee_payer.pubkey()));
 
@@ -1607,6 +1632,8 @@ fn main() {
             //         .help("Stake pool address."),
             // )
         )
+        .subcommand(SubCommand::with_name("update-force").about("Updates all balances in the pool after validator stake accounts receive rewards.")
+        )
         .subcommand(SubCommand::with_name("withdraw").about("Withdraw amount from the stake pool")
             // .arg(
             //     Arg::with_name("pool")
@@ -1862,7 +1889,6 @@ fn main() {
             )
         }
         ("deposit", Some(arg_matches)) => {
-            
             //let pool_account: Pubkey = pubkey_of(arg_matches, "pool").unwrap();
             let stake_account: Pubkey = pubkey_of(arg_matches, "stake").unwrap();
             let token_receiver: Option<Pubkey> = pubkey_of(arg_matches, "token_receiver");
@@ -1874,8 +1900,11 @@ fn main() {
         }
         ("update", Some(_arg_matches)) => {
             //let pool_account: Pubkey = pubkey_of(arg_matches, "pool").unwrap();
-            
-            command_update(&config, &pool_account)
+            command_update(&config, &pool_account, false)
+        }
+        ("update-force", Some(_arg_matches)) => {
+            //let pool_account: Pubkey = pubkey_of(arg_matches, "pool").unwrap();
+            command_update(&config, &pool_account, true)
         }
         ("withdraw", Some(arg_matches)) => {
             //let pool_account: Pubkey = pubkey_of(arg_matches, "pool").unwrap();

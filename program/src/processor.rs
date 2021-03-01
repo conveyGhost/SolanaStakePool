@@ -87,9 +87,10 @@ impl Processor {
         authority_type: &[u8],
         bump_seed: u8,
     ) -> Result<(), ProgramError> {
-        if *authority_to_check
-            != Self::authority_id(program_id, stake_pool_key, authority_type, bump_seed)?
+        let compareto=Self::authority_id(program_id, stake_pool_key, authority_type, bump_seed)?;
+        if *authority_to_check != compareto
         {
+             msg!("*authority_to_check {} != {} {}",*authority_to_check, std::str::from_utf8(authority_type).unwrap().to_string(), compareto); 
             return Err(StakePoolError::InvalidProgramAddress.into());
         }
         Ok(())
@@ -219,7 +220,9 @@ impl Processor {
         staker_auth: stake::StakeAuthorize,
         reserved: AccountInfo<'a>,
         stake_program_info: AccountInfo<'a>,
+
     ) -> Result<(), ProgramError> {
+
         let me_bytes = stake_pool.to_bytes();
         let authority_signature_seeds = [&me_bytes[..32], authority_type, &[bump_seed]];
         let signers = &[&authority_signature_seeds[..]];
@@ -828,18 +831,23 @@ impl Processor {
             if validator_stake_record.last_update_epoch >= clock.epoch {
                 continue;
             }
+
+            //LMT debug force updated mark
+            //validator_stake_record.last_update_epoch = clock.epoch;
+            //changes = true;
+
             for (validator_stake_account, validator_account) in validator_stake_accounts
                 .iter()
                 .zip(validator_accounts.iter())
             {
                 if validator_stake_record.validator_account
-                    != validator_account.ok_or(StakePoolError::WrongStakeState)?
-                {
-                    continue;
-                }
-                validator_stake_record.last_update_epoch = clock.epoch;
-                validator_stake_record.balance = **validator_stake_account.lamports.borrow();
-                changes = true;
+                        != validator_account.ok_or(StakePoolError::WrongStakeState)?
+                    {
+                        continue;
+                    }
+                    validator_stake_record.last_update_epoch = clock.epoch;
+                    validator_stake_record.balance = **validator_stake_account.lamports.borrow();
+                    changes = true;
             }
         }
 
@@ -1297,6 +1305,7 @@ impl Processor {
     
     /// Processes [Deposit](enum.Instruction.html).
     pub fn process_deposit(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+
         let account_info_iter = &mut accounts.iter();
         // Stake pool
         let stake_pool_info = next_account_info(account_info_iter)?;
@@ -1341,13 +1350,16 @@ impl Processor {
         Self::check_stake_activation(stake_info, clock, stake_history)?;
 
         // Check authority accounts
+        msg!("Check authority accounts");
         stake_pool.check_authority_withdraw(withdraw_info.key, program_id, stake_pool_info.key)?;
         stake_pool.check_authority_deposit(deposit_info.key, program_id, stake_pool_info.key)?;
 
-        if stake_pool.owner_fee_account != *owner_fee_info.key {
-            return Err(StakePoolError::InvalidFeeAccount.into());
-        }
+        // if stake_pool.owner_fee_account != *owner_fee_info.key {
+        //     return Err(StakePoolError::InvalidFeeAccount.into());
+        // }
+
         if stake_pool.token_program_id != *token_program_info.key {
+            msg!("stake_pool.token_program_id {} != accs[11] (token_program_info) {}", stake_pool.token_program_id, *token_program_info.key);
             return Err(ProgramError::IncorrectProgramId);
         }
 
@@ -1371,7 +1383,7 @@ impl Processor {
         let validator_account =
             Self::get_validator_checked(program_id, stake_pool_info, validator_stake_account_info)?;
 
-        //fin the validator account in the validator list
+        //find the validator account in the validator list
         let validator_list_item = validator_stake_list
             .find_mut(&validator_account)
             .ok_or(StakePoolError::ValidatorNotFound)?;
@@ -1394,7 +1406,39 @@ impl Processor {
             .checked_sub(fee_amount)
             .ok_or(StakePoolError::CalculationFailure)?;
 
+        // //DEBUG - revert
+        // msg!("REVERT sets stake_pool_info as 'Withdrawer' for stake_info");
+        // Self::stake_authorize(
+        //     stake_pool_info.key,
+        //     stake_info.clone(),
+        //     deposit_info.clone(),
+        //     Self::AUTHORITY_DEPOSIT,
+        //     stake_pool.deposit_bump_seed,
+        //     owner_fee_info.key,
+        //     stake::StakeAuthorize::Withdrawer,
+        //     clock_info.clone(),
+        //     stake_program_info.clone(),
+        // )?;
+
+        // // sets stake_pool_info as "Staker" for stake_info
+        // msg!("REVERT sets stake_pool_info as 'Staker' for stake_info");
+        // Self::stake_authorize(
+        //     stake_pool_info.key,
+        //     stake_info.clone(),
+        //     deposit_info.clone(),
+        //     Self::AUTHORITY_DEPOSIT,
+        //     stake_pool.deposit_bump_seed,
+        //     owner_fee_info.key,
+        //     stake::StakeAuthorize::Staker,
+        //     clock_info.clone(),
+        //     stake_program_info.clone(),
+        // )?;
+        // //DEBUG
+        // return Ok(());
+
+
         // sets stake_pool_info as "Withdrawer" for stake_info
+        msg!("sets withdraw_info_auth as 'Withdrawer' for user_stake_acc");
         Self::stake_authorize(
             stake_pool_info.key,
             stake_info.clone(),
@@ -1408,6 +1452,7 @@ impl Processor {
         )?;
 
         // sets stake_pool_info as "Staker" for stake_info
+        msg!("sets withdraw_info_auth as 'Staker' for user_stake_acc");
         Self::stake_authorize(
             stake_pool_info.key,
             stake_info.clone(),
@@ -1421,6 +1466,7 @@ impl Processor {
         )?;
 
         // merges stake_info into stake_pool_info
+        msg!("merges stake_info into stake_pool_info");
         Self::stake_merge(
             stake_pool_info.key,
             stake_info.clone(),
@@ -1434,6 +1480,7 @@ impl Processor {
         )?;
 
         // mints tokens/shares for the user (tokens minus fee)
+        msg!("mints tokens/shares for the user");
         Self::token_mint_to(
             stake_pool_info.key,
             token_program_info.clone(),

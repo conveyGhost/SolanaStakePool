@@ -34,5 +34,16 @@
 			},
 			"label": "cargo test-bpf --test vsa_add"
 		},
+		{
+			"type": "shell",
+			"command": "cargo",
+			"args":["test-bpf","--test","deposit","--","--nocapture"],
+			"problemMatcher": ["$rustc"],
+			"group": {
+				"kind": "test",
+				"isDefault": true,
+			},
+			"label": "cargo test-bpf --test deposit"
+		},
 	]
 }
