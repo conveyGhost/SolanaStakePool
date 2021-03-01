@@ -1,12 +1,10 @@
-#Meta CLI
+# Meta CLI
 
 ### Meta Pool program command-line utility
 
 A basic command-line for creating and using the MetaPool. The meta pool is an extension of the SPL-Stake-Pool.
 
 This is the CLI utility. The main doc is here: https://github.com/SolAutoStake/StakePool
-
-## meta CLI 
 
 This rust-coded CLI expands on the SPL-Stake-Pool CLI. It adds the following commands:
 
