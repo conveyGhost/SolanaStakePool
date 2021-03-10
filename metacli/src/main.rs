@@ -1058,17 +1058,12 @@ fn command_update(config: &Config, pool: &Pubkey, force:bool) -> CommandResult {
         println!("Validator {}\tBalance:{}", info.validator_account, info.balance);
     }
 
-    let accounts_to_update: Vec<&Pubkey> = validator_stake_list_data
-        .validators
-        .iter()
-        .filter_map(|item| {
-            if force==false && item.last_update_epoch >= epoch_info.epoch {
-                None
-            } else {
-                Some(&item.validator_account)
-            }
-        })
-        .collect();
+    let mut accounts_to_update: Vec<&Pubkey> = Vec::new();
+    for item in validator_stake_list_data.validators.iter(){
+        if force || item.last_update_epoch < epoch_info.epoch {
+            accounts_to_update.push(&item.validator_account);
+        }
+    }
 
     let mut instructions: Vec<Instruction> = vec![];
     println!("--- {} accounts_to_update", accounts_to_update.len());

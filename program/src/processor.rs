@@ -803,15 +803,18 @@ impl Processor {
     pub fn process_update_list_balance(
         _program_id: &Pubkey,
         accounts: &[AccountInfo],
+
     ) -> ProgramResult {
+
         let account_info_iter = &mut accounts.iter();
         // Account storing validator stake list
         let validator_stake_list_info = next_account_info(account_info_iter)?;
         // Clock sysvar account
         let clock_info = next_account_info(account_info_iter)?;
         let clock = &Clock::from_account_info(clock_info)?;
-        // Validator stake accounts
-        let validator_stake_accounts = account_info_iter.as_slice();
+        
+        // rest of the accounts are Validator stake accounts
+        let validator_stake_accounts_args = account_info_iter.as_slice();
 
         // Read validator stake list account and check if it is valid
         let mut validator_stake_list =
@@ -820,34 +823,34 @@ impl Processor {
             return Err(StakePoolError::InvalidState.into());
         }
 
-        let validator_accounts: Vec<Option<Pubkey>> = validator_stake_accounts
-            .iter()
-            .map(|stake| Self::get_validator(stake).ok())
-            .collect();
+        // //get validator account id state for each passed validator acc 
+        // let validator_accounts_args: Vec<Option<Pubkey>> = validator_stake_accounts_args
+        //     .iter()
+        //     .map(|stake| Self::get_validator(stake).ok())
+        //     .collect();
 
         let mut changes = false;
+        
         // Do a brute iteration through the list, optimize if necessary
         for validator_stake_record in &mut validator_stake_list.validators {
+
             if validator_stake_record.last_update_epoch >= clock.epoch {
                 continue;
             }
+            msg!("validator_stake_record {}",validator_stake_record.validator_account);
 
             //LMT debug force updated mark
             //validator_stake_record.last_update_epoch = clock.epoch;
             //changes = true;
 
-            for (validator_stake_account, validator_account) in validator_stake_accounts
-                .iter()
-                .zip(validator_accounts.iter())
-            {
-                if validator_stake_record.validator_account
-                        != validator_account.ok_or(StakePoolError::WrongStakeState)?
-                    {
-                        continue;
-                    }
+            //for (validator_stake_account, validator_account) in validator_stake_accounts
+            for item in validator_stake_accounts_args.iter() {
+                if *item.key==validator_stake_record.validator_account {
                     validator_stake_record.last_update_epoch = clock.epoch;
-                    validator_stake_record.balance = **validator_stake_account.lamports.borrow();
+                    validator_stake_record.balance = **item.lamports.borrow();
+                    msg!("updated to {} {}",clock.epoch, validator_stake_record.balance);
                     changes = true;
+                }
             }
         }
 
